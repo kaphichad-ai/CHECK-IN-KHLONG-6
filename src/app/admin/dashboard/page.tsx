@@ -21,6 +21,7 @@ const menuItems: {
 
 export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
+  const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
 
   const pageTitle: Record<TabKey, string> = {
     dashboard: "ภาพรวมระบบ",
@@ -31,34 +32,81 @@ export default function AdminDashboardPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white flex">
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex overflow-x-hidden relative">
+      {/* Mobile Backdrop เมื่อเปิด Sidebar บนมือถือ */}
+      {isSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-xs transition-opacity"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-64 bg-[#111111] border-r border-white/[0.08] p-6 flex flex-col justify-between">
+      <aside
+        className={`fixed md:static inset-y-0 left-0 z-40 bg-[#111111] border-r border-white/[0.08] flex flex-col justify-between transition-all duration-300 ${
+          isSidebarOpen ? "w-64 p-6" : "w-20 p-4 md:w-20"
+        } ${!isSidebarOpen && "max-md:-translate-x-full"}`}
+      >
         <div>
-          <h1 className="text-lg font-black tracking-wider text-yellow-400 mb-8">ADMIN PANEL</h1>
+          <div className="flex items-center justify-between mb-8">
+            {isSidebarOpen ? (
+              <h1 className="text-lg font-black tracking-wider text-yellow-400 truncate">ADMIN PANEL</h1>
+            ) : (
+              <h1 className="text-sm font-black text-yellow-400 text-center w-full">ADMIN</h1>
+            )}
+          </div>
           <nav className="space-y-2">
             {menuItems.map((item) => (
               <button
                 key={item.key}
-                onClick={() => setActiveTab(item.key)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-bold transition-all ${
+                onClick={() => {
+                  setActiveTab(item.key);
+                  // บนมือถือเมื่อกดเลือกเมนูให้ปิด Sidebar อัตโนมัติ
+                  if (window.innerWidth < 768) setIsSidebarOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-xs font-bold transition-all ${
                   activeTab === item.key
                     ? "bg-yellow-400 text-black shadow-lg shadow-yellow-400/10"
                     : "text-zinc-400 hover:bg-white/[0.04] hover:text-white"
                 }`}
+                title={!isSidebarOpen ? item.label : undefined}
               >
-                <span className="text-base">{item.icon}</span>
-                {item.label}
+                <span className="text-base shrink-0">{item.icon}</span>
+                {isSidebarOpen && <span className="truncate">{item.label}</span>}
               </button>
             ))}
           </nav>
         </div>
+
+        {/* ปุ่มย่อ/ขยาย Sidebar (เฉพาะหน้าจอ Desktop) */}
+        <div className="pt-4 border-t border-white/[0.08] hidden md:block">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-white/[0.04] hover:text-white transition-all"
+            title={isSidebarOpen ? "ย่อเมนู" : "ขยายเมนู"}
+          >
+            <span>{isSidebarOpen ? "◀" : "▶"}</span>
+            {isSidebarOpen && <span>ย่อแถบเมนู</span>}
+          </button>
+        </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        <header className="flex justify-between items-center mb-8">
-          <h2 className="text-xl font-black">{pageTitle[activeTab]}</h2>
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto min-w-0">
+        <header className="flex justify-between items-center mb-8 gap-4">
+          <div className="flex items-center gap-3">
+            {/* ปุ่มเปิด/ปิด Sidebar (Hamburger Toggle) */}
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2.5 rounded-xl bg-[#111111] border border-white/[0.08] text-yellow-400 hover:bg-white/[0.04] transition-all flex items-center justify-center shrink-0 shadow-md"
+              title="ซ่อน/แสดงเมนู"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <h2 className="text-xl md:text-2xl font-black truncate">{pageTitle[activeTab]}</h2>
+          </div>
         </header>
 
         {/* Dynamic Content based on activeTab */}
@@ -682,7 +730,7 @@ function AdminTableManagerContent() {
 
       {/* DATE BAR SELECTOR */}
       <div className="w-full bg-[#111111] border border-white/[0.08] p-3 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full md:w-auto">
           <span className="text-xs font-bold text-yellow-400 whitespace-nowrap">📅 เลือกวัน:</span>
           <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-full">
             {getDateOptions().map((date) => {
@@ -704,7 +752,7 @@ function AdminTableManagerContent() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 border-l border-white/[0.08] pl-3">
+        <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-white/[0.08] pt-2 md:pt-0 md:pl-3 w-full md:w-auto justify-between md:justify-start">
           <span className="text-[10px] text-zinc-400">วันอื่น:</span>
           <input
             type="date"
