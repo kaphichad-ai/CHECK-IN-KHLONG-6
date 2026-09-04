@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useRef, useEffect, Suspense } from "react";
+import React, { useState, useRef, useEffect, Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import Cropper from "react-easy-crop";
+import Cropper, { Area } from "react-easy-crop";
 import { createClient } from "@/lib/supabase/client";
 
 type TabKey = "dashboard" | "promo" | "event" | "banner" | "table";
@@ -36,14 +36,14 @@ export default function AdminDashboardPage() {
       {/* Mobile Backdrop เมื่อเปิด Sidebar บนมือถือ */}
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-xs transition-opacity"
+          className="fixed inset-0 bg-black/60 z-30 md:hidden backdrop-blur-xs transition-opacity print:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 bg-[#111111] border-r border-white/[0.08] flex flex-col justify-between transition-all duration-300 ${
+        className={`fixed md:static inset-y-0 left-0 z-40 bg-[#111111] border-r border-white/[0.08] flex flex-col justify-between transition-all duration-300 print:hidden ${
           isSidebarOpen ? "w-64 p-6" : "w-20 p-4 md:w-20"
         } ${!isSidebarOpen && "max-md:-translate-x-full"}`}
       >
@@ -61,7 +61,6 @@ export default function AdminDashboardPage() {
                 key={item.key}
                 onClick={() => {
                   setActiveTab(item.key);
-                  // บนมือถือเมื่อกดเลือกเมนูให้ปิด Sidebar อัตโนมัติ
                   if (window.innerWidth < 768) setIsSidebarOpen(false);
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-3 rounded-2xl text-xs font-bold transition-all ${
@@ -78,7 +77,6 @@ export default function AdminDashboardPage() {
           </nav>
         </div>
 
-        {/* ปุ่มย่อ/ขยาย Sidebar (เฉพาะหน้าจอ Desktop) */}
         <div className="pt-4 border-t border-white/[0.08] hidden md:block">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -93,9 +91,8 @@ export default function AdminDashboardPage() {
 
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto min-w-0">
-        <header className="flex justify-between items-center mb-8 gap-4">
+        <header className="flex justify-between items-center mb-8 gap-4 print:hidden">
           <div className="flex items-center gap-3">
-            {/* ปุ่มเปิด/ปิด Sidebar (Hamburger Toggle) */}
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               className="p-2.5 rounded-xl bg-[#111111] border border-white/[0.08] text-yellow-400 hover:bg-white/[0.04] transition-all flex items-center justify-center shrink-0 shadow-md"
@@ -109,7 +106,6 @@ export default function AdminDashboardPage() {
           </div>
         </header>
 
-        {/* Dynamic Content based on activeTab */}
         {activeTab === "dashboard" && <div className="text-zinc-400 text-sm">เนื้อหาภาพรวมระบบ...</div>}
         {activeTab === "promo" && <div className="text-zinc-400 text-sm">เนื้อหาจัดการโปรโมชั่น...</div>}
         {activeTab === "event" && <div className="text-zinc-400 text-sm">เนื้อหาจัดการกิจกรรม...</div>}
@@ -121,7 +117,7 @@ export default function AdminDashboardPage() {
 }
 
 {/* =================================================
-    TABLE MANAGER (ปรับแต่งให้เข้ากับหน้าหลัก Admin ดึงดีไซน์ Dark Theme กลมกลืน)
+    TABLE MANAGER
 ================================================== */}
 
 const createImage = (url: string): Promise<HTMLImageElement> =>
@@ -219,7 +215,7 @@ const getLocalDateString = (date: Date = new Date()) => {
 };
 
 function AdminTableManagerContent() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const searchParams = useSearchParams();
   const queryDate = searchParams.get("date");
 
@@ -227,7 +223,6 @@ function AdminTableManagerContent() {
 
   const [currentDate, setCurrentDate] = useState<string>(queryDate || todayStr);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-
   const [isEditingArtistName, setIsEditingArtistName] = useState<boolean>(false);
 
   const [saveSuccessModal, setSaveSuccessModal] = useState<{
@@ -244,11 +239,37 @@ function AdminTableManagerContent() {
   }, [queryDate]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const exportAreaRef = useRef<HTMLDivElement>(null);
+  const [isExportingImage, setIsExportingImage] = useState(false);
+
+  const handleExportImage = async () => {
+    if (!exportAreaRef.current) return;
+    try {
+      setIsExportingImage(true);
+      const html2canvas = (await import("html2canvas")).default;
+      const canvas = await html2canvas(exportAreaRef.current, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+        windowWidth: exportAreaRef.current.scrollWidth,
+        windowHeight: exportAreaRef.current.scrollHeight,
+      });
+      const link = document.createElement("a");
+      link.download = `ผังโต๊ะ-${currentConfig.artistName || currentDate}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    } catch (err) {
+      console.error("Export image failed:", err);
+      alert("เกิดข้อผิดพลาดในการส่งออกรูปภาพ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsExportingImage(false);
+    }
+  };
 
   const [tempImageSrc, setTempImageSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
   const [prices, setPrices] = useState<Record<string, ZonePrice>>(DEFAULT_PRICES);
   const [dailyData, setDailyData] = useState<Record<string, DailyConfig>>({
@@ -292,7 +313,7 @@ function AdminTableManagerContent() {
     };
 
     fetchDailyData();
-  }, [currentDate]);
+  }, [currentDate, supabase]);
 
   const currentConfig: DailyConfig = dailyData[currentDate] || DEFAULT_CONFIG;
 
@@ -362,7 +383,7 @@ function AdminTableManagerContent() {
     }
   };
 
-  const onCropComplete = (_: any, croppedPixels: any) => {
+  const onCropComplete = (_: Area, croppedPixels: Area) => {
     setCroppedAreaPixels(croppedPixels);
   };
 
@@ -690,8 +711,51 @@ function AdminTableManagerContent() {
 
   return (
     <div className="w-full text-white flex flex-col items-center font-sans space-y-6">
+      {/* CSS สำหรับสั่งพิมพ์ (ปรับ zoom ให้พอดีหน้ากระดาษแผ่นเดียว A4 แนวนอน) */}
+      <style jsx global>{`
+        @media print {
+          @page {
+            size: A4 landscape;
+            margin: 2mm;
+          }
+          body {
+            background: white !important;
+            color: black !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          aside, header, .print\:hidden {
+            display: none !important;
+          }
+          /* ปรับลดสัดส่วนซูมให้พอดี 1 หน้ากระดาษ */
+          .printable-export-area {
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            zoom: 0.60; 
+          }
+          .printable-export-area > * {
+            margin-top: 2px !important;
+            margin-bottom: 2px !important;
+          }
+          .printable-export-area .overflow-x-auto,
+          .printable-export-area .overflow-y-auto {
+            overflow: visible !important;
+            max-height: none !important;
+          }
+          .printable-export-area .min-w-\\[850px\\] {
+            min-width: 0 !important;
+            width: fit-content !important;
+          }
+        }
+      `}</style>
+
       {/* Header */}
-      <div className="w-full flex flex-col md:flex-row justify-between items-center border-b border-white/[0.08] pb-4 gap-4">
+      <div className="w-full flex flex-col md:flex-row justify-between items-center border-b border-white/[0.08] pb-4 gap-4 print:hidden">
         <div>
           <h1 className="text-2xl font-black tracking-wider text-white">
             Check in <span className="text-yellow-400 font-sans text-sm">KHLONG 6 (ADMIN)</span>
@@ -699,296 +763,314 @@ function AdminTableManagerContent() {
           <p className="text-xs text-zinc-400 mt-1">ระบบผังโต๊ะแยกอิสระรายวัน (เชื่อมต่อ Supabase)</p>
         </div>
 
-        <div className="text-sm bg-[#111111] px-4 py-2 rounded-2xl border border-white/[0.08] flex items-center gap-2">
-          {isLoading && <span className="text-xs text-yellow-400 animate-pulse">กำลังโหลด...</span>}
-          <span>
-            เลือกแล้ว:{" "}
-            <span className="text-yellow-400 font-bold">
-              {selectedTables.length > 0
-                ? selectedTables.map((id) => currentConfig.customNames[id] || id).join(", ")
-                : "ไม่มี"}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => window.print()}
+            className="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded-xl text-xs shadow-lg transition-all flex items-center gap-1.5"
+          >
+            <span>📄</span> Export เป็น PDF
+          </button>
+          <button
+            onClick={handleExportImage}
+            disabled={isExportingImage}
+            className="bg-cyan-600 hover:bg-cyan-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold px-4 py-2 rounded-xl text-xs shadow-lg transition-all flex items-center gap-1.5"
+          >
+            <span>🖼️</span> {isExportingImage ? "กำลังสร้างรูป..." : "Export เป็นรูปภาพ (PNG)"}
+          </button>
+          <div className="text-sm bg-[#111111] px-4 py-2 rounded-2xl border border-white/[0.08] flex items-center gap-2">
+            {isLoading && <span className="text-xs text-yellow-400 animate-pulse">กำลังโหลด...</span>}
+            <span>
+              เลือกแล้ว:{" "}
+              <span className="text-yellow-400 font-bold">
+                {selectedTables.length > 0
+                  ? selectedTables.map((id) => currentConfig.customNames[id] || id).join(", ")
+                  : "ไม่มี"}
+              </span>
             </span>
-          </span>
+          </div>
         </div>
       </div>
 
-      {/* คำอธิบายสถานะสีโต๊ะ */}
-      <div className="w-full bg-[#111111] border border-white/[0.08] rounded-2xl p-4 flex flex-wrap items-center justify-center gap-6 text-xs shadow-md">
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-emerald-500 to-green-400 ring-1 ring-white flex items-center justify-center text-[9px] text-white font-bold">✓</div>
-          <span>กำลังเลือก</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-amber-400 text-black text-[9px] flex items-center justify-center font-bold animate-pulse">⏳</div>
-          <span className="text-amber-400 font-bold">รอแอดมินตรวจสลิป</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-4 h-4 rounded-full bg-gradient-to-br from-red-600 to-red-900 ring-1 ring-red-400 flex items-center justify-center text-[8px] text-white">🔒</div>
-          <span className="text-red-400 font-bold">จองแล้ว (อนุมัติแล้ว)</span>
-        </div>
-      </div>
-
-      {/* DATE BAR SELECTOR */}
-      <div className="w-full bg-[#111111] border border-white/[0.08] p-3 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2 w-full md:w-auto">
-          <span className="text-xs font-bold text-yellow-400 whitespace-nowrap">📅 เลือกวัน:</span>
-          <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-full">
-            {getDateOptions().map((date) => {
-              const isActive = currentDate === date;
-              return (
-                <button
-                  key={date}
-                  onClick={() => handleDateChange(date)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border ${
-                    isActive
-                      ? "bg-yellow-400 text-black border-yellow-400 shadow-md scale-105"
-                      : "bg-[#18181b] text-zinc-300 border-white/[0.04] hover:bg-white/[0.04]"
-                  }`}
-                >
-                  {formatDateLabel(date)}
-                </button>
-              );
-            })}
+      {/* พื้นที่ที่จะถูกบันทึก/พิมพ์ลง PDF (รวม Banner และผังโต๊ะ) */}
+      <div ref={exportAreaRef} className="w-full flex flex-col items-center space-y-6 printable-export-area">
+        {/* คำอธิบายสถานะสีโต๊ะ (ซ่อนตอนพิมพ์) */}
+        <div className="w-full bg-[#111111] border border-white/[0.08] rounded-2xl p-4 print:hidden flex flex-wrap items-center justify-center gap-6 text-xs shadow-md">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-emerald-500 to-green-400 ring-1 ring-white flex items-center justify-center text-[9px] text-white font-bold">✓</div>
+            <span>กำลังเลือก</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-amber-400 text-black text-[9px] flex items-center justify-center font-bold animate-pulse">⏳</div>
+            <span className="text-amber-400 font-bold">รอแอดมินตรวจสลิป</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-red-600 to-red-900 ring-1 ring-red-400 flex items-center justify-center text-[8px] text-white">🔒</div>
+            <span className="text-red-400 font-bold">จองแล้ว (อนุมัติแล้ว)</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-white/[0.08] pt-2 md:pt-0 md:pl-3 w-full md:w-auto justify-between md:justify-start">
-          <span className="text-[10px] text-zinc-400">วันอื่น:</span>
-          <input
-            type="date"
-            value={currentDate}
-            onChange={(e) => handleDateChange(e.target.value)}
-            className="bg-[#18181b] border border-white/[0.08] rounded-xl px-2 py-1 text-white text-xs focus:outline-none focus:border-yellow-400"
-          />
-        </div>
-      </div>
+        {/* DATE BAR SELECTOR (ซ่อนตอนพิมพ์ PDF) */}
+        <div className="w-full bg-[#111111] border border-white/[0.08] p-3 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-3 print:hidden">
+          <div className="flex items-center gap-2 w-full md:w-auto">
+            <span className="text-xs font-bold text-yellow-400 whitespace-nowrap">📅 เลือกวัน:</span>
+            <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-full">
+              {getDateOptions().map((date) => {
+                const isActive = currentDate === date;
+                return (
+                  <button
+                    key={date}
+                    onClick={() => handleDateChange(date)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap border ${
+                      isActive
+                        ? "bg-yellow-400 text-black border-yellow-400 shadow-md scale-105"
+                        : "bg-[#18181b] text-zinc-300 border-white/[0.04] hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    {formatDateLabel(date)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-      <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
-
-      {/* EVENT BANNER */}
-      <div className="w-full mb-6 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] shadow-xl relative">
-        {currentConfig.eventImage ? (
-          <div className="relative group">
-            <img
-              src={currentConfig.eventImage}
-              alt={currentConfig.artistName || "วงดนตรีประจำวัน"}
-              className="w-full h-56 md:h-80 object-cover transition-transform duration-500 group-hover:scale-105"
+          <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-white/[0.08] pt-2 md:pt-0 md:pl-3 w-full md:w-auto justify-between md:justify-start">
+            <span className="text-[10px] text-zinc-400">วันอื่น:</span>
+            <input
+              type="date"
+              value={currentDate}
+              onChange={(e) => handleDateChange(e.target.value)}
+              className="bg-[#18181b] border border-white/[0.08] rounded-xl px-2 py-1 text-white text-xs focus:outline-none focus:border-yellow-400"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-6">
-              <span className="text-yellow-400 text-xs font-bold tracking-widest uppercase">SPECIAL CONCERT</span>
-
-              {isEditingArtistName ? (
-                <div className="flex items-center gap-2 mt-1 max-w-md">
-                  <input
-                    type="text"
-                    value={currentConfig.artistName || ""}
-                    onChange={(e) => updateCurrentConfig((prev) => ({ ...prev, artistName: e.target.value }))}
-                    placeholder="พิมพ์ชื่อวงดนตรี..."
-                    className="bg-[#18181b] border border-yellow-400 text-white font-extrabold text-xl md:text-2xl px-3 py-1 rounded-xl focus:outline-none w-full"
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleSaveArtistName}
-                    className="bg-green-600 hover:bg-green-500 text-white font-bold text-xs px-4 py-2 rounded-xl shadow whitespace-nowrap"
-                  >
-                    💾 บันทึก
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3">
-                  <h2 className="text-2xl md:text-4xl font-extrabold text-white tracking-wide">
-                    {currentConfig.artistName || "ศิลปินประจำวัน"}
-                  </h2>
-                  <button
-                    onClick={() => setIsEditingArtistName(true)}
-                    className="text-zinc-300 hover:text-yellow-400 text-xs bg-black/40 hover:bg-black/70 px-2.5 py-1 rounded-xl border border-white/[0.08] transition-all"
-                  >
-                    ✏️ แก้ชื่อวง
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="absolute top-4 right-4 flex gap-2 z-10">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-black/60 hover:bg-black/80 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg border border-white/[0.08] backdrop-blur-sm transition-all flex items-center gap-1"
-              >
-                ✂️ เปลี่ยนและตัดรูปใหม่
-              </button>
-              <button
-                onClick={handleRemoveImage}
-                className="bg-red-600/80 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg border border-red-500 backdrop-blur-sm transition-all flex items-center gap-1"
-              >
-                🗑️ ลบรูป
-              </button>
-            </div>
           </div>
-        ) : (
-          <div className="w-full h-52 bg-[#111111] flex flex-col items-center justify-center text-zinc-400 border-2 border-dashed border-white/[0.08] rounded-2xl p-4 gap-3">
-            <p className="text-sm font-medium text-center">🎤 ยังไม่ได้เพิ่มรูปภาพวงดนตรีสำหรับวันที่ {currentDate}</p>
+        </div>
 
-            <div className="flex flex-col sm:flex-row items-center gap-2 w-full max-w-lg">
-              <input
-                type="text"
-                placeholder="ระบุชื่อวงดนตรี / งานคอนเสิร์ต..."
-                value={currentConfig.artistName || ""}
-                onChange={(e) => updateCurrentConfig((prev) => ({ ...prev, artistName: e.target.value }))}
-                className="bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-yellow-400 w-full"
+        <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*" className="hidden" />
+
+        {/* EVENT BANNER */}
+        <div className="w-full mb-6 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111111] shadow-xl relative">
+          {currentConfig.eventImage ? (
+            <div className="relative group">
+              <img
+                src={currentConfig.eventImage}
+                alt={currentConfig.artistName || "วงดนตรีประจำวัน"}
+                className="w-full h-56 md:h-80 print:h-[90px] object-cover transition-transform duration-500"
               />
-              <button
-                onClick={handleSaveAllChanges}
-                className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-3 py-2 rounded-xl whitespace-nowrap transition-all"
-              >
-                💾 บันทึกชื่อวง
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold text-xs px-4 py-2 rounded-xl shadow-lg transition-all flex items-center gap-1 whitespace-nowrap"
-              >
-                ➕ อัปโหลดโปสเตอร์
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-6 print:p-3">
+                <span className="text-yellow-400 text-xs print:text-[9px] font-bold tracking-widest uppercase">SPECIAL CONCERT ({currentDate})</span>
 
-      {/* Main Layout Map */}
-      <div className="w-full bg-[#ded5c6] text-black p-6 rounded-2xl shadow-2xl overflow-x-auto">
-        <div className="min-w-[850px] grid grid-cols-12 gap-4 relative">
-          <div className="col-span-7 flex flex-col gap-4 border-r border-gray-400 pr-4">
-            <div className="w-3/4 mx-auto bg-gray-500 text-white font-bold text-center py-4 rounded-b-3xl text-xl tracking-widest shadow-inner">
-              stage
+                {isEditingArtistName ? (
+                  <div className="flex items-center gap-2 mt-1 max-w-md print:hidden">
+                    <input
+                      type="text"
+                      value={currentConfig.artistName || ""}
+                      onChange={(e) => updateCurrentConfig((prev) => ({ ...prev, artistName: e.target.value }))}
+                      placeholder="พิมพ์ชื่อวงดนตรี..."
+                      className="bg-[#18181b] border border-yellow-400 text-white font-extrabold text-xl md:text-2xl px-3 py-1 rounded-xl focus:outline-none w-full"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleSaveArtistName}
+                      className="bg-green-600 hover:bg-green-500 text-white font-bold text-xs px-4 py-2 rounded-xl shadow whitespace-nowrap"
+                    >
+                      💾 บันทึก
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-2xl md:text-4xl print:text-base font-extrabold text-white tracking-wide">
+                      {currentConfig.artistName || "ศิลปินประจำวัน"}
+                    </h2>
+                    <button
+                      onClick={() => setIsEditingArtistName(true)}
+                      className="text-zinc-300 hover:text-yellow-400 text-xs bg-black/40 hover:bg-black/70 px-2.5 py-1 rounded-xl border border-white/[0.08] transition-all print:hidden"
+                    >
+                      ✏️ แก้ชื่อวง
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="absolute top-4 right-4 flex gap-2 z-10 print:hidden">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="bg-black/60 hover:bg-black/80 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg border border-white/[0.08] backdrop-blur-sm transition-all flex items-center gap-1"
+                >
+                  ✂️ เปลี่ยนและตัดรูปใหม่
+                </button>
+                <button
+                  onClick={handleRemoveImage}
+                  className="bg-red-600/80 hover:bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg border border-red-500 backdrop-blur-sm transition-all flex items-center gap-1"
+                >
+                  🗑️ ลบรูป
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full h-52 bg-[#111111] flex flex-col items-center justify-center text-zinc-400 border-2 border-dashed border-white/[0.08] rounded-2xl p-4 gap-3">
+              <p className="text-sm font-medium text-center">🎤 ยังไม่ได้เพิ่มรูปภาพวงดนตรีสำหรับวันที่ {currentDate}</p>
+
+              <div className="flex flex-col sm:flex-row items-center gap-2 w-full max-w-lg print:hidden">
+                <input
+                  type="text"
+                  placeholder="ระบุชื่อวงดนตรี / งานคอนเสิร์ต..."
+                  value={currentConfig.artistName || ""}
+                  onChange={(e) => updateCurrentConfig((prev) => ({ ...prev, artistName: e.target.value }))}
+                  className="bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-yellow-400 w-full"
+                />
+                <button
+                  onClick={handleSaveAllChanges}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-3 py-2 rounded-xl whitespace-nowrap transition-all"
+                >
+                  💾 บันทึกชื่อวง
+                </button>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="bg-yellow-400 hover:bg-yellow-500 text-black font-bold text-xs px-4 py-2 rounded-xl shadow-lg transition-all flex items-center gap-1 whitespace-nowrap"
+                >
+                  ➕ อัปโหลดโปสเตอร์
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Main Layout Map */}
+        <div className="w-full bg-[#ded5c6] text-black p-6 print:p-3 rounded-2xl shadow-2xl overflow-x-auto">
+          <div className="min-w-[850px] grid grid-cols-12 gap-4 relative">
+            <div className="col-span-7 flex flex-col gap-4 border-r border-gray-400 pr-4">
+              <div className="w-3/4 mx-auto bg-gray-500 text-white font-bold text-center py-4 rounded-b-3xl text-xl tracking-widest shadow-inner">
+                stage
+              </div>
+
+              <div className="flex gap-4 items-start mt-2">
+                <div className="flex flex-col gap-3">
+                  {numConfig.specialCount > 0 && (
+                    <div className="flex flex-col gap-1 items-center">
+                      {["120", "121", "122"].slice(0, numConfig.specialCount).map((id) => renderCircleTable(id, "SPECIAL"))}
+                    </div>
+                  )}
+
+                  <div className="border border-black p-2 rounded-2xl flex flex-col gap-2 bg-[#d1c6b4] mt-2 items-center">
+                    {Array.from({ length: 4 }).map((_, i) => {
+                      const id = `VIP ${i + 1}`;
+                      return renderCircleTable(id, "VIP", "w-12 h-12 text-xs");
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-x-auto">
+                  <div
+                    className="grid gap-x-2 gap-y-1.5 justify-items-center"
+                    style={{
+                      gridTemplateColumns: `repeat(${numConfig.aCols}, minmax(0, 1fr))`,
+                      gridTemplateRows: `repeat(${numConfig.aRows}, minmax(0, 1fr))`,
+                      gridAutoFlow: "column",
+                    }}
+                  >
+                    {Array.from({ length: numConfig.aCols }).map((_, colIndex) =>
+                      Array.from({ length: numConfig.aRows }).map((_, rowIndex) => {
+                        const tableNumber = colIndex * numConfig.aRows + rowIndex + 1;
+                        const tableId = `A${tableNumber}`;
+                        return renderCircleTable(tableId, "A");
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-black p-3 rounded-2xl flex items-center justify-between gap-2 mt-4 bg-[#c8bca9]">
+                <div className="bg-black text-white text-xs font-bold p-2 rounded text-center w-16">Entrance Exit</div>
+                <div className="flex gap-3 overflow-x-auto">
+                  {Array.from({ length: 3 }).map((_, i) => {
+                    const id = `VIP ${i + 5}`;
+                    return renderCircleTable(id, "VIP", "w-14 h-10 text-xs rounded-xl");
+                  })}
+                </div>
+                <div className="font-bold text-lg text-gray-800 pr-2">ชั้น 1</div>
+              </div>
             </div>
 
-            <div className="flex gap-4 items-start mt-2">
-              <div className="flex flex-col gap-3">
-                {numConfig.specialCount > 0 && (
-                  <div className="flex flex-col gap-1 items-center">
-                    {["120", "121", "122"].slice(0, numConfig.specialCount).map((id) => renderCircleTable(id, "SPECIAL"))}
+            <div className="col-span-5 flex gap-4 pl-2">
+              <div className="flex flex-col justify-between items-center w-1/2">
+                {numConfig.bTopCount > 0 ? (
+                  <div className="border border-black p-2 rounded-xl grid grid-cols-2 gap-2 bg-[#d1c6b4] w-full justify-items-center">
+                    {Array.from({ length: Math.ceil(numConfig.bTopCount / 2) }).map((_, rowIndex) => (
+                      <React.Fragment key={rowIndex}>
+                        {renderCircleTable(`B${rowIndex + 1}`, "B")}
+                        {rowIndex + Math.ceil(numConfig.bTopCount / 2) < numConfig.bTopCount &&
+                          renderCircleTable(`B${rowIndex + Math.ceil(numConfig.bTopCount / 2) + 1}`, "B")}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border border-red-500/30 p-2 rounded-xl bg-red-100/50 w-full text-center text-[10px] text-red-600 font-bold">
+                    ปิดโซน B บน
                   </div>
                 )}
 
-                <div className="border border-black p-2 rounded-2xl flex flex-col gap-2 bg-[#d1c6b4] mt-2 items-center">
-                  {Array.from({ length: 4 }).map((_, i) => {
-                    const id = `VIP ${i + 1}`;
-                    return renderCircleTable(id, "VIP", "w-12 h-12 text-xs");
-                  })}
+                <div className="my-2 flex flex-col items-center gap-1">
+                  <div className="w-8 h-8 border border-black rounded-full flex items-center justify-center text-xs bg-white">🚺</div>
+                  <div className="bg-black text-white px-3 py-6 font-bold tracking-widest text-sm rounded-md">BAR</div>
+                  <div className="w-8 h-8 border border-black rounded-full flex items-center justify-center text-xs bg-white">🚹</div>
                 </div>
-              </div>
 
-              <div className="flex-1 overflow-x-auto">
-                <div
-                  className="grid gap-x-2 gap-y-1.5 justify-items-center"
-                  style={{
-                    gridTemplateColumns: `repeat(${numConfig.aCols}, minmax(0, 1fr))`,
-                    gridTemplateRows: `repeat(${numConfig.aRows}, minmax(0, 1fr))`,
-                    gridAutoFlow: "column",
-                  }}
-                >
-                  {Array.from({ length: numConfig.aCols }).map((_, colIndex) =>
-                    Array.from({ length: numConfig.aRows }).map((_, rowIndex) => {
-                      const tableNumber = colIndex * numConfig.aRows + rowIndex + 1;
-                      const tableId = `A${tableNumber}`;
-                      return renderCircleTable(tableId, "A");
-                    })
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div className="border border-black p-3 rounded-2xl flex items-center justify-between gap-2 mt-4 bg-[#c8bca9]">
-              <div className="bg-black text-white text-xs font-bold p-2 rounded text-center w-16">Entrance Exit</div>
-              <div className="flex gap-3 overflow-x-auto">
-                {Array.from({ length: 3 }).map((_, i) => {
-                  const id = `VIP ${i + 5}`;
-                  return renderCircleTable(id, "VIP", "w-14 h-10 text-xs rounded-xl");
-                })}
-              </div>
-              <div className="font-bold text-lg text-gray-800 pr-2">ชั้น 1</div>
-            </div>
-          </div>
-
-          <div className="col-span-5 flex gap-4 pl-2">
-            <div className="flex flex-col justify-between items-center w-1/2">
-              {numConfig.bTopCount > 0 ? (
-                <div className="border border-black p-2 rounded-xl grid grid-cols-2 gap-2 bg-[#d1c6b4] w-full justify-items-center">
-                  {Array.from({ length: Math.ceil(numConfig.bTopCount / 2) }).map((_, rowIndex) => (
-                    <React.Fragment key={rowIndex}>
-                      {renderCircleTable(`B${rowIndex + 1}`, "B")}
-                      {rowIndex + Math.ceil(numConfig.bTopCount / 2) < numConfig.bTopCount &&
-                        renderCircleTable(`B${rowIndex + Math.ceil(numConfig.bTopCount / 2) + 1}`, "B")}
-                    </React.Fragment>
-                  ))}
-                </div>
-              ) : (
-                <div className="border border-red-500/30 p-2 rounded-xl bg-red-100/50 w-full text-center text-[10px] text-red-600 font-bold">
-                  ปิดโซน B บน
-                </div>
-              )}
-
-              <div className="my-2 flex flex-col items-center gap-1">
-                <div className="w-8 h-8 border border-black rounded-full flex items-center justify-center text-xs bg-white">🚺</div>
-                <div className="bg-black text-white px-3 py-6 font-bold tracking-widest text-sm rounded-md">BAR</div>
-                <div className="w-8 h-8 border border-black rounded-full flex items-center justify-center text-xs bg-white">🚹</div>
-              </div>
-
-              {numConfig.bBottomCount > 0 ? (
-                <div className="border border-black p-2 rounded-xl grid grid-cols-2 gap-2 bg-[#d1c6b4] w-full justify-items-center">
-                  {Array.from({ length: Math.ceil(numConfig.bBottomCount / 2) }).map((_, rowIndex) => (
-                    <React.Fragment key={rowIndex}>
-                      {renderCircleTable(`B${rowIndex + 11}`, "B")}
-                      {rowIndex + Math.ceil(numConfig.bBottomCount / 2) < numConfig.bBottomCount &&
-                        renderCircleTable(`B${rowIndex + Math.ceil(numConfig.bBottomCount / 2) + 11}`, "B")}
-                    </React.Fragment>
-                  ))}
-                </div>
-              ) : (
-                <div className="border border-red-500/30 p-2 rounded-xl bg-red-100/50 w-full text-center text-[10px] text-red-600 font-bold">
-                  ปิดโซน B ล่าง
-                </div>
-              )}
-            </div>
-
-            <div className="flex-1 border-2 border-black p-3 rounded-2xl flex flex-col justify-between bg-[#c8bca9]">
-              {numConfig.sCount > 0 ? (
-                <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 justify-items-center max-h-[380px] overflow-y-auto">
-                  {Array.from({ length: Math.ceil(numConfig.sCount / 2) }).map((_, rowIndex) => {
-                    const sHalf = Math.ceil(numConfig.sCount / 2);
-                    const firstColIndex = rowIndex + 1;
-                    const secondColIndex = rowIndex + 1 + sHalf;
-
-                    return (
+                {numConfig.bBottomCount > 0 ? (
+                  <div className="border border-black p-2 rounded-xl grid grid-cols-2 gap-2 bg-[#d1c6b4] w-full justify-items-center">
+                    {Array.from({ length: Math.ceil(numConfig.bBottomCount / 2) }).map((_, rowIndex) => (
                       <React.Fragment key={rowIndex}>
-                        {firstColIndex <= numConfig.sCount && renderCircleTable(`S${firstColIndex}`, "S")}
-                        {secondColIndex <= numConfig.sCount && renderCircleTable(`S${secondColIndex}`, "S")}
+                        {renderCircleTable(`B${rowIndex + 11}`, "B")}
+                        {rowIndex + Math.ceil(numConfig.bBottomCount / 2) < numConfig.bBottomCount &&
+                          renderCircleTable(`B${rowIndex + Math.ceil(numConfig.bBottomCount / 2) + 11}`, "B")}
                       </React.Fragment>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-black/10 rounded-xl border border-black/20">
-                  <span className="text-2xl mb-1">🚫</span>
-                  <span className="text-xs font-bold text-red-800">ปิดบริการโซน S</span>
-                  <span className="text-[10px] text-gray-600 mt-1">(0 โต๊ะ)</span>
-                </div>
-              )}
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border border-red-500/30 p-2 rounded-xl bg-red-100/50 w-full text-center text-[10px] text-red-600 font-bold">
+                    ปิดโซน B ล่าง
+                  </div>
+                )}
+              </div>
 
-              <div className="flex items-center justify-between mt-4 border-t border-black pt-2">
-                <div className="flex items-center gap-1">
-                  <div className="w-5 h-5 bg-pink-300 rounded-full"></div>
-                  <span className="text-xs font-bold">บันได</span>
+              <div className="flex-1 border-2 border-black p-3 rounded-2xl flex flex-col justify-between bg-[#c8bca9]">
+                {numConfig.sCount > 0 ? (
+                  <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 justify-items-center max-h-[380px] overflow-y-auto">
+                    {Array.from({ length: Math.ceil(numConfig.sCount / 2) }).map((_, rowIndex) => {
+                      const sHalf = Math.ceil(numConfig.sCount / 2);
+                      const firstColIndex = rowIndex + 1;
+                      const secondColIndex = rowIndex + 1 + sHalf;
+
+                      return (
+                        <React.Fragment key={rowIndex}>
+                          {firstColIndex <= numConfig.sCount && renderCircleTable(`S${firstColIndex}`, "S")}
+                          {secondColIndex <= numConfig.sCount && renderCircleTable(`S${secondColIndex}`, "S")}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center p-4 text-center bg-black/10 rounded-xl border border-black/20">
+                    <span className="text-2xl mb-1">🚫</span>
+                    <span className="text-xs font-bold text-red-800">ปิดบริการโซน S</span>
+                    <span className="text-[10px] text-gray-600 mt-1">(0 โต๊ะ)</span>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between mt-4 border-t border-black pt-2">
+                  <div className="flex items-center gap-1">
+                    <div className="w-5 h-5 bg-pink-300 rounded-full"></div>
+                    <span className="text-xs font-bold">บันได</span>
+                  </div>
+                  <span className="font-bold text-lg">ชั้น 2</span>
                 </div>
-                <span className="font-bold text-lg">ชั้น 2</span>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ฟอร์มกรอกการจอง */}
+      {/* ฟอร์มกรอกการจอง (ซ่อนตอนพิมพ์ PDF) */}
       {selectedTables.length > 0 && (
-        <div className="w-full bg-[#111111] border border-yellow-400 rounded-2xl p-6 shadow-xl">
+        <div className="w-full bg-[#111111] border border-yellow-400 rounded-2xl p-6 shadow-xl print:hidden">
           <div className="flex justify-between items-center mb-2">
             <h3 className="text-lg font-bold text-yellow-400">📝 กรอกข้อมูลการจอง (โดย Admin)</h3>
             <span className="text-sm font-extrabold text-emerald-400 bg-[#18181b] px-3 py-1 rounded-xl border border-white/[0.08]">
@@ -1090,8 +1172,8 @@ function AdminTableManagerContent() {
         </div>
       )}
 
-      {/* ADMIN CONTROL CENTER */}
-      <div className="w-full bg-[#111111] border border-white/[0.08] rounded-2xl p-6 shadow-xl flex flex-col gap-6">
+      {/* ADMIN CONTROL CENTER (ซ่อนตอนพิมพ์ PDF) */}
+      <div className="w-full bg-[#111111] border border-white/[0.08] rounded-2xl p-6 shadow-xl flex flex-col gap-6 print:hidden">
         <div className="flex flex-col sm:flex-row justify-between items-center bg-[#18181b] p-4 rounded-xl border border-white/[0.08] gap-4">
           <div>
             <h3 className="text-sm font-bold text-yellow-400">✏️ แก้ไขเลขโต๊ะบนผัง (วันที่ {currentDate})</h3>
@@ -1206,7 +1288,7 @@ function AdminTableManagerContent() {
                 type="text"
                 disabled
                 value="7 โต๊ะ"
-                className="w-full bg-[#18181b]/50 border border-white/[0.08] rounded-xl px-2 py-1 text-center text-zinc-400 text-sm cursor-not-allowed"
+                className="w-full bg-[#111111]/50 border border-white/[0.08] rounded-xl px-2 py-1 text-center text-zinc-400 text-sm cursor-not-allowed"
               />
             </div>
           </div>
@@ -1240,7 +1322,7 @@ function AdminTableManagerContent() {
         </div>
       </div>
 
-      {/* MODAL: ครอบตัดรูปภาพ (IMAGE CROPPER) */}
+      {/* MODALS */}
       {tempImageSrc && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#111111] border border-white/[0.08] rounded-2xl w-full max-w-2xl overflow-hidden flex flex-col shadow-2xl">
@@ -1272,7 +1354,6 @@ function AdminTableManagerContent() {
                   min={1}
                   max={3}
                   step={0.1}
-                  aria-labelledby="Zoom"
                   onChange={(e) => setZoom(Number(e.target.value))}
                   className="w-full accent-yellow-400"
                 />
@@ -1299,7 +1380,6 @@ function AdminTableManagerContent() {
         </div>
       )}
 
-      {/* MODAL: แก้ไขชื่อโต๊ะเดี่ยว */}
       {editingTableId && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div className="bg-[#111111] border border-amber-400 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
@@ -1336,7 +1416,6 @@ function AdminTableManagerContent() {
         </div>
       )}
 
-      {/* MODAL POPUP: บันทึกข้อมูล/การจองลง Supabase สำเร็จ */}
       {saveSuccessModal?.show && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
           <div className="bg-[#111111] border border-emerald-500/60 rounded-2xl p-6 w-full max-w-md shadow-2xl relative text-center">
@@ -1379,7 +1458,6 @@ function AdminTableManagerContent() {
         </div>
       )}
 
-      {/* MODAL: ดูรายละเอียดโต๊ะ + ปุ่มตรวจสอบและอนุมัติสลิป */}
       {viewTableDetail && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
@@ -1486,7 +1564,6 @@ function AdminTableManagerContent() {
         </div>
       )}
 
-      {/* MODAL: ดูรูปสลิปการโอนเงินแบบเต็มจอ */}
       {viewSlipImage && (
         <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={() => setViewSlipImage(null)}>
           <button
