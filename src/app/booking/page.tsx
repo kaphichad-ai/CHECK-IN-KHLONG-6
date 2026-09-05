@@ -400,14 +400,14 @@ function BookingContent() {
     const zone = prices[zoneKey] || prices[defaultZoneKey];
     const displayLabel = currentConfig.customNames[id] || id;
 
-    let bgClass = zone?.color || 'bg-neutral-600';
+    let bgClass = 'bg-emerald-600 ring-1 ring-emerald-300/40';
 
     if (isPending) {
       bgClass = 'bg-amber-500 ring-2 ring-amber-300 text-black font-extrabold cursor-not-allowed opacity-90 animate-pulse';
     } else if (isConfirmed || isBooked) {
       bgClass = 'bg-red-700/90 ring-1 ring-red-500 cursor-not-allowed opacity-80';
     } else if (isSelected) {
-      bgClass = 'bg-emerald-500 ring-4 ring-yellow-300 scale-110 font-bold shadow-lg z-10';
+      bgClass = 'bg-sky-500 ring-4 ring-white scale-110 font-bold shadow-lg z-10';
     }
 
     return (
@@ -533,25 +533,39 @@ function BookingContent() {
       </div>
 
       {/* Zone Price Legend */}
-      <div className="w-full max-w-5xl bg-neutral-900/90 border border-neutral-800 p-3 rounded-xl mb-4 shadow-md">
+      <div className="w-full max-w-5xl bg-neutral-900/90 border border-neutral-800 p-3 rounded-xl mb-3 shadow-md">
         <div className="text-xs font-bold text-gray-400 mb-2">🏷️ ราคาโต๊ะแต่ละโซน:</div>
         <div className="flex flex-wrap gap-2 text-[11px]">
           {Object.entries(prices).map(([key, zone]) => (
             <div key={key} className="flex items-center gap-1.5 bg-neutral-800 px-2 py-1 rounded-lg border border-neutral-700">
-              <span className={`w-3 h-3 rounded-full ${zone.color}`}></span>
               <span className="text-gray-300">{zone.name}:</span>
               <span className="text-yellow-400 font-bold">
                 {zone.price === 0 ? 'FREE' : `฿${zone.price.toLocaleString()}`}
               </span>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Table Status Legend */}
+      <div className="w-full max-w-5xl bg-neutral-900/90 border border-neutral-800 p-3 rounded-xl mb-4 shadow-md">
+        <div className="text-xs font-bold text-gray-400 mb-2">🪑 สถานะโต๊ะ:</div>
+        <div className="flex flex-wrap gap-2 text-[11px]">
+          <div className="flex items-center gap-1.5 bg-neutral-800 px-2 py-1 rounded-lg border border-neutral-700">
+            <span className="w-3 h-3 rounded-full bg-emerald-600"></span>
+            <span className="text-emerald-400 font-bold">ว่าง (แตะเพื่อเลือก)</span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-neutral-800 px-2 py-1 rounded-lg border border-neutral-700">
+            <span className="w-3 h-3 rounded-full bg-sky-500"></span>
+            <span className="text-sky-400 font-bold">กำลังเลือก</span>
+          </div>
           <div className="flex items-center gap-1.5 bg-neutral-800 px-2 py-1 rounded-lg border border-neutral-700">
             <span className="w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center text-[7px] text-black font-bold">⏳</span>
-            <span className="text-gray-400">รอตรวจสลิป</span>
+            <span className="text-amber-400 font-bold">รอตรวจสลิป</span>
           </div>
           <div className="flex items-center gap-1.5 bg-neutral-800 px-2 py-1 rounded-lg border border-neutral-700">
             <span className="w-3 h-3 rounded-full bg-red-600 flex items-center justify-center text-[7px]">❌</span>
-            <span className="text-gray-400">จองแล้ว</span>
+            <span className="text-red-400 font-bold">จองแล้ว</span>
           </div>
         </div>
       </div>

@@ -171,6 +171,8 @@ interface BookingInfo {
   totalPaid?: number;
   timestamp: string;
   status: "pending" | "confirmed";
+  checkedIn?: boolean;
+  checkedInAt?: string;
 }
 
 interface DailyConfig {
@@ -246,6 +248,24 @@ function AdminTableManagerContent() {
     if (!exportAreaRef.current) return;
     try {
       setIsExportingImage(true);
+
+      // สำคัญมากสำหรับ iPad / iOS Safari: ต้องรอให้ "ฟอนต์" ที่ใช้แสดงตัวเลข
+      // บนวงกลมโต๊ะโหลดเสร็จสมบูรณ์ก่อน ค่อยสั่ง html2canvas จับภาพ
+      // ถ้าไม่รอ html2canvas จะ capture ก่อนฟอนต์พร้อม ทำให้ตัวเลขที่ควรจะ
+      // เป็น A1, A2, ... กลายเป็นสัญลักษณ์ "กล่องกากบาท" (glyph สำรองของฟอนต์
+      // เวลาหาตัวอักษรจริงไม่เจอ) แทน ซึ่งเป็นบั๊กที่พบบ่อยของ html2canvas
+      // บน iOS Safari โดยเฉพาะเวลาโหลดหน้าเป็นครั้งแรก
+      if (typeof document !== "undefined" && document.fonts?.ready) {
+        try {
+          await document.fonts.ready;
+        } catch {
+          // ignore ถ้า browser ไม่รองรับ document.fonts
+        }
+      }
+      // หน่วงอีกเสี้ยววินาทีให้ Safari commit การ layout/paint ให้เสร็จจริง ๆ
+      // ก่อน capture (กันเคสที่ fonts.ready resolve แล้วแต่ยัง repaint ไม่ทัน)
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
       const html2canvas = (await import("html2canvas")).default;
       const canvas = await html2canvas(exportAreaRef.current, {
         backgroundColor: "#ffffff",
@@ -346,6 +366,19 @@ function AdminTableManagerContent() {
 
   const [viewTableDetail, setViewTableDetail] = useState<{ id: string; info: BookingInfo } | null>(null);
   const [viewSlipImage, setViewSlipImage] = useState<string | null>(null);
+  const [showBookingForm, setShowBookingForm] = useState(false);
+  const [editCustomerModal, setEditCustomerModal] = useState<{
+    id: string;
+    name: string;
+    phone: string;
+    lineId: string;
+  } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    message: string;
+    confirmLabel?: string;
+    danger?: boolean;
+    onConfirm: () => void;
+  } | null>(null);
 
   const handleDateChange = (date: string) => {
     setCurrentDate(date);
@@ -404,15 +437,21 @@ function AdminTableManagerContent() {
   };
 
   const handleRemoveImage = () => {
-    if (confirm("คุณต้องการลบรูปภาพวงดนตรีของวันนี้ใช่หรือไม่?")) {
-      updateCurrentConfig((prev) => ({
-        ...prev,
-        eventImage: "",
-      }));
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    }
+    setConfirmDialog({
+      message: "คุณต้องการลบรูปภาพวงดนตรีของวันนี้ใช่หรือไม่?",
+      confirmLabel: "ลบรูปภาพ",
+      danger: true,
+      onConfirm: () => {
+        updateCurrentConfig((prev) => ({
+          ...prev,
+          eventImage: "",
+        }));
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
+        setConfirmDialog(null);
+      },
+    });
   };
 
   const handleSaveArtistName = async () => {
@@ -532,7 +571,7 @@ function AdminTableManagerContent() {
 
   const handleConfirmBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName || !phone || selectedTables.length === 0) return;
+    if (!customerName || selectedTables.length === 0) return;
 
     const timestamp = new Date().toLocaleString("th-TH");
 
@@ -540,7 +579,7 @@ function AdminTableManagerContent() {
     selectedTables.forEach((tableId) => {
       updatedBookings[tableId] = {
         customerName,
-        phone,
+        phone: phone || "",
         lineId: lineId || undefined,
         slipImage: slipImage || undefined,
         totalPaid: totalPrice,
@@ -581,6 +620,7 @@ function AdminTableManagerContent() {
       setLineId("");
       setSlipImage(null);
       setSlipFileName("");
+      setShowBookingForm(false);
     }
   };
 
@@ -615,30 +655,123 @@ function AdminTableManagerContent() {
     }
   };
 
-  const handleCancelBooking = async (tableId: string) => {
-    if (confirm(`ต้องการยกเลิกการจองโต๊ะ ${currentConfig.customNames[tableId] || tableId} ใช่หรือไม่?`)) {
-      const updatedBookings = { ...currentConfig.bookings };
-      delete updatedBookings[tableId];
+  const handleToggleCheckedIn = async (tableId: string) => {
+    const booking = currentConfig.bookings[tableId];
+    if (!booking) return;
 
-      const newConfig = { ...currentConfig, bookings: updatedBookings };
+    const nextCheckedIn = !booking.checkedIn;
 
-      updateCurrentConfig(() => newConfig);
+    const updatedBookings = {
+      ...currentConfig.bookings,
+      [tableId]: {
+        ...booking,
+        checkedIn: nextCheckedIn,
+        checkedInAt: nextCheckedIn ? new Date().toLocaleString("th-TH") : undefined,
+      },
+    };
 
-      const { error } = await supabase.from("daily_configs").upsert({
-        date: currentDate,
-        config: newConfig,
-        prices: prices,
-        updated_at: new Date().toISOString(),
-      });
+    const newConfig = { ...currentConfig, bookings: updatedBookings };
+    updateCurrentConfig(() => newConfig);
 
-      if (error) {
-        console.error(error);
-        alert("เกิดข้อผิดพลาดในการยกเลิกการจอง");
-      } else {
-        setViewTableDetail(null);
-        alert("ยกเลิกการจองโต๊ะเรียบร้อยแล้ว");
+    const { error } = await supabase.from("daily_configs").upsert({
+      date: currentDate,
+      config: newConfig,
+      prices: prices,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error(error);
+      alert("เกิดข้อผิดพลาดในการบันทึกสถานะรับโต๊ะ");
+    } else {
+      setViewTableDetail((prev) =>
+        prev && prev.id === tableId
+          ? { ...prev, info: updatedBookings[tableId] }
+          : prev
+      );
+      if (nextCheckedIn) {
+        alert(`บันทึกแล้ว: ลูกค้ารับโต๊ะ ${currentConfig.customNames[tableId] || tableId} เรียบร้อย!`);
       }
     }
+  };
+
+  const handleSaveCustomerEdit = async () => {
+    if (!editCustomerModal) return;
+    if (!editCustomerModal.name.trim()) {
+      alert("กรุณาระบุชื่อลูกค้า");
+      return;
+    }
+
+    const booking = currentConfig.bookings[editCustomerModal.id];
+    if (!booking) return;
+
+    const updatedBooking: BookingInfo = {
+      ...booking,
+      customerName: editCustomerModal.name.trim(),
+      phone: editCustomerModal.phone.trim(),
+      lineId: editCustomerModal.lineId.trim() || undefined,
+    };
+
+    const updatedBookings = {
+      ...currentConfig.bookings,
+      [editCustomerModal.id]: updatedBooking,
+    };
+
+    const newConfig = { ...currentConfig, bookings: updatedBookings };
+    updateCurrentConfig(() => newConfig);
+
+    const { error } = await supabase.from("daily_configs").upsert({
+      date: currentDate,
+      config: newConfig,
+      prices: prices,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error(error);
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลลูกค้า");
+    } else {
+      setViewTableDetail((prev) =>
+        prev && prev.id === editCustomerModal.id ? { ...prev, info: updatedBooking } : prev
+      );
+      setEditCustomerModal(null);
+    }
+  };
+
+  const executeCancelBooking = async (tableId: string) => {
+    const updatedBookings = { ...currentConfig.bookings };
+    delete updatedBookings[tableId];
+
+    const newConfig = { ...currentConfig, bookings: updatedBookings };
+
+    updateCurrentConfig(() => newConfig);
+
+    const { error } = await supabase.from("daily_configs").upsert({
+      date: currentDate,
+      config: newConfig,
+      prices: prices,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error(error);
+      alert("เกิดข้อผิดพลาดในการยกเลิกการจอง");
+    } else {
+      setViewTableDetail(null);
+      alert("ยกเลิกการจองโต๊ะเรียบร้อยแล้ว");
+    }
+  };
+
+  const handleCancelBooking = (tableId: string) => {
+    setConfirmDialog({
+      message: `ต้องการยกเลิกการจองโต๊ะ ${currentConfig.customNames[tableId] || tableId} ใช่หรือไม่?`,
+      confirmLabel: "ยกเลิกการจอง",
+      danger: true,
+      onConfirm: () => {
+        setConfirmDialog(null);
+        executeCancelBooking(tableId);
+      },
+    });
   };
 
   const renderCircleTable = (id: string, defaultZoneKey: string, extraClass = "") => {
@@ -652,7 +785,7 @@ function AdminTableManagerContent() {
     const displayLabel = currentConfig.customNames[id] || id;
     const isCustomized = Boolean(currentConfig.customNames[id]);
 
-    let bgClass = zone?.color || "bg-gray-600";
+    let bgClass = "bg-emerald-600 hover:bg-emerald-500 ring-1 ring-emerald-300/40";
     let statusOverlay = null;
 
     if (isPending) {
@@ -664,17 +797,29 @@ function AdminTableManagerContent() {
         </span>
       );
     } else if (isBooked) {
-      bgClass = "bg-gradient-to-br from-red-600 via-red-700 to-red-900 ring-2 ring-red-400/80 text-white font-black shadow-inner opacity-95";
-      statusOverlay = (
-        <span className="relative flex items-center justify-center w-full h-full">
-          <span className="absolute text-red-300/60 text-lg font-black select-none pointer-events-none">✕</span>
-          <span className="relative z-10 text-[8.5px] font-black truncate max-w-full px-0.5">
-            {displayLabel}
+      if (booking.checkedIn) {
+        bgClass = "bg-gradient-to-br from-violet-600 via-violet-700 to-purple-900 ring-2 ring-violet-300/80 text-white font-black shadow-inner";
+        statusOverlay = (
+          <span className="relative flex items-center justify-center w-full h-full">
+            <span className="absolute text-violet-200/50 text-[9px] font-black select-none pointer-events-none top-0.5">🙋</span>
+            <span className="relative z-10 text-[8.5px] font-black truncate max-w-full px-0.5 mt-1">
+              {displayLabel}
+            </span>
           </span>
-        </span>
-      );
+        );
+      } else {
+        bgClass = "bg-gradient-to-br from-red-600 via-red-700 to-red-900 ring-2 ring-red-400/80 text-white font-black shadow-inner opacity-95";
+        statusOverlay = (
+          <span className="relative flex items-center justify-center w-full h-full">
+            <span className="absolute text-red-300/60 text-lg font-black select-none pointer-events-none">✕</span>
+            <span className="relative z-10 text-[8.5px] font-black truncate max-w-full px-0.5">
+              {displayLabel}
+            </span>
+          </span>
+        );
+      }
     } else if (isSelected) {
-      bgClass = "bg-gradient-to-tr from-emerald-500 to-green-400 ring-2 ring-white scale-110 font-black text-white shadow-xl";
+      bgClass = "bg-gradient-to-tr from-sky-500 to-blue-400 ring-2 ring-white scale-110 font-black text-white shadow-xl";
       statusOverlay = (
         <span className="flex flex-col items-center justify-center leading-none">
           <span className="text-[8px]">✓</span>
@@ -698,10 +843,10 @@ function AdminTableManagerContent() {
           isPending
             ? `โต๊ะ: ${displayLabel} (รอตรวจสลิป)`
             : isBooked
-            ? `โต๊ะ: ${displayLabel} (จองแล้ว โดย: ${booking.customerName})`
+            ? `โต๊ะ: ${displayLabel} (${booking.checkedIn ? "มารับโต๊ะแล้ว" : "จองแล้ว"} โดย: ${booking.customerName})`
             : isEditTableNamesMode
             ? `คลิกเพื่อแก้ไขเลขโต๊ะ ${displayLabel}`
-            : `โต๊ะ: ${displayLabel}`
+            : `โต๊ะ: ${displayLabel} (ว่าง) - ฿${(Number(zone?.price) || 0).toLocaleString()}`
         }
       >
         {statusOverlay ? statusOverlay : <span className="leading-none">{displayLabel}</span>}
@@ -796,7 +941,11 @@ function AdminTableManagerContent() {
         {/* คำอธิบายสถานะสีโต๊ะ (ซ่อนตอนพิมพ์) */}
         <div className="w-full bg-[#111111] border border-white/[0.08] rounded-2xl p-4 print:hidden flex flex-wrap items-center justify-center gap-6 text-xs shadow-md">
           <div className="flex items-center gap-2">
-            <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-emerald-500 to-green-400 ring-1 ring-white flex items-center justify-center text-[9px] text-white font-bold">✓</div>
+            <div className="w-4 h-4 rounded-full bg-emerald-600 ring-1 ring-emerald-300/40"></div>
+            <span className="text-emerald-400 font-bold">ว่าง (คลิกเพื่อเลือก)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-gradient-to-tr from-sky-500 to-blue-400 ring-1 ring-white flex items-center justify-center text-[9px] text-white font-bold">✓</div>
             <span>กำลังเลือก</span>
           </div>
           <div className="flex items-center gap-2">
@@ -806,6 +955,10 @@ function AdminTableManagerContent() {
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-gradient-to-br from-red-600 to-red-900 ring-1 ring-red-400 flex items-center justify-center text-[8px] text-white">🔒</div>
             <span className="text-red-400 font-bold">จองแล้ว (อนุมัติแล้ว)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 rounded-full bg-gradient-to-br from-violet-600 to-purple-900 ring-1 ring-violet-300 flex items-center justify-center text-[8px] text-white">🙋</div>
+            <span className="text-violet-400 font-bold">มารับโต๊ะแล้ว</span>
           </div>
         </div>
 
@@ -1068,107 +1221,142 @@ function AdminTableManagerContent() {
         </div>
       </div>
 
-      {/* ฟอร์มกรอกการจอง (ซ่อนตอนพิมพ์ PDF) */}
+      {/* แถบสรุปโต๊ะที่เลือก + ปุ่มเปิด popup กรอกข้อมูลการจอง (ซ่อนตอนพิมพ์ PDF) */}
       {selectedTables.length > 0 && (
-        <div className="w-full bg-[#111111] border border-yellow-400 rounded-2xl p-6 shadow-xl print:hidden">
-          <div className="flex justify-between items-center mb-2">
-            <h3 className="text-lg font-bold text-yellow-400">📝 กรอกข้อมูลการจอง (โดย Admin)</h3>
-            <span className="text-sm font-extrabold text-emerald-400 bg-[#18181b] px-3 py-1 rounded-xl border border-white/[0.08]">
+        <div className="w-full bg-[#111111] border border-yellow-400 rounded-2xl p-4 shadow-xl print:hidden flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-zinc-400">
+              โต๊ะที่เลือก:{" "}
+              <span className="text-yellow-400 font-bold">
+                {selectedTables.map((id) => currentConfig.customNames[id] || id).join(", ")}
+              </span>
+            </p>
+            <span className="text-sm font-extrabold text-emerald-400">
               ราคารวม: ฿{totalPrice.toLocaleString()}
             </span>
           </div>
-          <p className="text-xs text-zinc-400 mb-4">
-            โต๊ะที่เลือก:{" "}
-            <span className="text-yellow-400 font-bold">
-              {selectedTables.map((id) => currentConfig.customNames[id] || id).join(", ")}
-            </span>
-          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedTables([])}
+              className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl text-sm font-semibold"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBookingForm(true)}
+              className="bg-yellow-500 hover:bg-yellow-400 text-black px-5 py-2 rounded-xl text-sm font-bold shadow-lg"
+            >
+              📝 กรอกข้อมูลจอง
+            </button>
+          </div>
+        </div>
+      )}
 
-          <form onSubmit={handleConfirmBooking} className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">ชื่อผู้จอง / ลูกค้า *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="ระบุชื่อผู้จอง"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">เบอร์โทรศัพท์ *</label>
-                <input
-                  type="tel"
-                  required
-                  placeholder="08xxxxxxxx"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs text-zinc-400 mb-1">LINE ID</label>
-                <input
-                  type="text"
-                  placeholder="ระบุ LINE ID (ถ้ามี)"
-                  value={lineId}
-                  onChange={(e) => setLineId(e.target.value)}
-                  className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400"
-                />
-              </div>
+      {/* Popup กรอกข้อมูลการจอง */}
+      {showBookingForm && selectedTables.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-[#111111] border border-yellow-400 rounded-2xl p-6 w-full max-w-lg shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-yellow-400">📝 กรอกข้อมูลการจอง (โดย Admin)</h3>
+              <span className="text-sm font-extrabold text-emerald-400 bg-[#18181b] px-3 py-1 rounded-xl border border-white/[0.08]">
+                ราคารวม: ฿{totalPrice.toLocaleString()}
+              </span>
             </div>
+            <p className="text-xs text-zinc-400 mb-4">
+              โต๊ะที่เลือก:{" "}
+              <span className="text-yellow-400 font-bold">
+                {selectedTables.map((id) => currentConfig.customNames[id] || id).join(", ")}
+              </span>
+            </p>
 
-            <div>
-              <label className="block text-xs text-zinc-400 mb-1">แนบสลิปการโอนเงิน (ถ้ามี)</label>
-              {slipImage ? (
-                <div className="relative bg-[#18181b] border border-white/[0.08] rounded-xl p-2 flex items-center gap-3">
-                  <img src={slipImage} alt="สลิปการโอนเงิน" className="w-12 h-12 object-cover rounded-lg border border-white/[0.08]" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-white truncate">{slipFileName}</p>
-                    <p className="text-[10px] text-emerald-400">แนบสลิปแล้ว ✓</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleRemoveAdminSlip}
-                    className="text-zinc-400 hover:text-red-400 text-xs font-bold px-2"
-                  >
-                    ✕
-                  </button>
+            <form onSubmit={handleConfirmBooking} className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">ชื่อผู้จอง / ลูกค้า *</label>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    placeholder="ระบุชื่อผู้จอง"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400"
+                  />
                 </div>
-              ) : (
-                <label className="flex items-center justify-center gap-2 border border-dashed border-white/[0.08] rounded-xl p-2.5 cursor-pointer hover:border-yellow-400 hover:bg-white/[0.02] transition-all text-xs text-zinc-400">
-                  <span>📎</span>
-                  <span>แตะเพื่อเลือกรูปสลิป</span>
-                  <input type="file" accept="image/*" onChange={handleAdminSlipSelect} className="hidden" />
-                </label>
-              )}
-            </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.08]">
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedTables([]);
-                  setSlipImage(null);
-                  setSlipFileName("");
-                  setLineId("");
-                }}
-                className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl text-sm font-semibold"
-              >
-                ยกเลิก
-              </button>
-              <button
-                type="submit"
-                className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg"
-              >
-                ยืนยันการจอง
-              </button>
-            </div>
-          </form>
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">เบอร์โทรศัพท์ (ถ้ามี)</label>
+                  <input
+                    type="tel"
+                    placeholder="08xxxxxxxx"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1">LINE ID</label>
+                  <input
+                    type="text"
+                    placeholder="ระบุ LINE ID (ถ้ามี)"
+                    value={lineId}
+                    onChange={(e) => setLineId(e.target.value)}
+                    className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">แนบสลิปการโอนเงิน (ถ้ามี)</label>
+                {slipImage ? (
+                  <div className="relative bg-[#18181b] border border-white/[0.08] rounded-xl p-2 flex items-center gap-3">
+                    <img src={slipImage} alt="สลิปการโอนเงิน" className="w-12 h-12 object-cover rounded-lg border border-white/[0.08]" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-white truncate">{slipFileName}</p>
+                      <p className="text-[10px] text-emerald-400">แนบสลิปแล้ว ✓</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveAdminSlip}
+                      className="text-zinc-400 hover:text-red-400 text-xs font-bold px-2"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex items-center justify-center gap-2 border border-dashed border-white/[0.08] rounded-xl p-2.5 cursor-pointer hover:border-yellow-400 hover:bg-white/[0.02] transition-all text-xs text-zinc-400">
+                    <span>📎</span>
+                    <span>แตะเพื่อเลือกรูปสลิป</span>
+                    <input type="file" accept="image/*" onChange={handleAdminSlipSelect} className="hidden" />
+                  </label>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-white/[0.08]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBookingForm(false);
+                    setSlipImage(null);
+                    setSlipFileName("");
+                    setLineId("");
+                  }}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl text-sm font-semibold"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="bg-green-600 hover:bg-green-500 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg"
+                >
+                  ยืนยันการจอง
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -1462,7 +1650,11 @@ function AdminTableManagerContent() {
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
             className={`bg-[#111111] border rounded-2xl p-6 w-full max-w-md shadow-2xl relative ${
-              viewTableDetail.info.status === "pending" ? "border-amber-400" : "border-red-500"
+              viewTableDetail.info.status === "pending"
+                ? "border-amber-400"
+                : viewTableDetail.info.checkedIn
+                ? "border-violet-500"
+                : "border-red-500"
             }`}
           >
             <div className="flex justify-between items-center mb-4 border-b border-white/[0.08] pb-2">
@@ -1472,6 +1664,10 @@ function AdminTableManagerContent() {
               {viewTableDetail.info.status === "pending" ? (
                 <span className="bg-amber-400/20 text-amber-400 border border-amber-400/40 text-[10px] font-bold px-2.5 py-1 rounded-full animate-pulse">
                   ⏳ รอตรวจสลิป
+                </span>
+              ) : viewTableDetail.info.checkedIn ? (
+                <span className="bg-violet-500/20 text-violet-300 border border-violet-400/40 text-[10px] font-bold px-2.5 py-1 rounded-full">
+                  🙋 มารับโต๊ะแล้ว
                 </span>
               ) : (
                 <span className="bg-red-500/20 text-red-400 border border-red-500/40 text-[10px] font-bold px-2.5 py-1 rounded-full">
@@ -1505,6 +1701,12 @@ function AdminTableManagerContent() {
                 <span className="text-zinc-400">เวลาที่ทำรายการ:</span>{" "}
                 <span className="text-xs text-zinc-400">{viewTableDetail.info.timestamp}</span>
               </div>
+              {viewTableDetail.info.checkedIn && viewTableDetail.info.checkedInAt && (
+                <div>
+                  <span className="text-zinc-400">เวลารับโต๊ะ:</span>{" "}
+                  <span className="text-xs text-violet-300 font-bold">{viewTableDetail.info.checkedInAt}</span>
+                </div>
+              )}
 
               {viewTableDetail.info.slipImage ? (
                 <div className="mt-2">
@@ -1532,6 +1734,21 @@ function AdminTableManagerContent() {
             </div>
 
             <div className="flex flex-col gap-2 pt-2 border-t border-white/[0.08]">
+              <button
+                type="button"
+                onClick={() =>
+                  setEditCustomerModal({
+                    id: viewTableDetail.id,
+                    name: viewTableDetail.info.customerName,
+                    phone: viewTableDetail.info.phone,
+                    lineId: viewTableDetail.info.lineId || "",
+                  })
+                }
+                className="w-full py-2.5 bg-cyan-600/20 hover:bg-cyan-600/40 text-cyan-300 border border-cyan-500/50 rounded-xl text-xs font-bold shadow-lg flex items-center justify-center gap-1 transition-all"
+              >
+                ✏️ แก้ไขข้อมูลลูกค้า
+              </button>
+
               {viewTableDetail.info.status === "pending" && (
                 <button
                   type="button"
@@ -1539,6 +1756,20 @@ function AdminTableManagerContent() {
                   className="w-full py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl text-xs font-bold shadow-lg flex items-center justify-center gap-1 transition-all"
                 >
                   ✅ ตรวจสอบสลิปถูกต้อง - อนุมัติการจอง (เปลี่ยนเป็นสีแดง)
+                </button>
+              )}
+
+              {viewTableDetail.info.status === "confirmed" && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleCheckedIn(viewTableDetail.id)}
+                  className={`w-full py-2.5 rounded-xl text-xs font-bold shadow-lg flex items-center justify-center gap-1 transition-all ${
+                    viewTableDetail.info.checkedIn
+                      ? "bg-zinc-800 hover:bg-zinc-700 text-violet-300 border border-violet-500/50"
+                      : "bg-violet-600 hover:bg-violet-500 text-white"
+                  }`}
+                >
+                  {viewTableDetail.info.checkedIn ? "↩️ ยกเลิกสถานะรับโต๊ะ" : "🙋 ลูกค้ามารับโต๊ะแล้ว (เปลี่ยนเป็นสีม่วง)"}
                 </button>
               )}
 
@@ -1559,6 +1790,96 @@ function AdminTableManagerContent() {
                   ปิด
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editCustomerModal && (
+        <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-[#111111] border border-cyan-500/60 rounded-2xl p-6 w-full max-w-md shadow-2xl relative">
+            <h3 className="text-lg font-bold text-cyan-300 mb-4 border-b border-white/[0.08] pb-2">
+              ✏️ แก้ไขข้อมูลลูกค้า
+            </h3>
+
+            <div className="flex flex-col gap-4">
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">ชื่อผู้จอง / ลูกค้า *</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={editCustomerModal.name}
+                  onChange={(e) => setEditCustomerModal({ ...editCustomerModal, name: e.target.value })}
+                  className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">เบอร์โทรศัพท์ (ถ้ามี)</label>
+                <input
+                  type="tel"
+                  placeholder="08xxxxxxxx"
+                  value={editCustomerModal.phone}
+                  onChange={(e) => setEditCustomerModal({ ...editCustomerModal, phone: e.target.value })}
+                  className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-zinc-400 mb-1">LINE ID</label>
+                <input
+                  type="text"
+                  placeholder="ระบุ LINE ID (ถ้ามี)"
+                  value={editCustomerModal.lineId}
+                  onChange={(e) => setEditCustomerModal({ ...editCustomerModal, lineId: e.target.value })}
+                  className="w-full bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-cyan-400"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 mt-2 border-t border-white/[0.08]">
+              <button
+                type="button"
+                onClick={() => setEditCustomerModal(null)}
+                className="bg-zinc-800 hover:bg-zinc-700 text-white px-4 py-2 rounded-xl text-sm font-semibold"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveCustomerEdit}
+                className="bg-cyan-600 hover:bg-cyan-500 text-white px-6 py-2 rounded-xl text-sm font-bold shadow-lg"
+              >
+                บันทึกการแก้ไข
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDialog && (
+        <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4">
+          <div
+            className={`bg-[#111111] border rounded-2xl p-6 w-full max-w-sm shadow-2xl relative text-center ${
+              confirmDialog.danger ? "border-red-500/60" : "border-yellow-400/60"
+            }`}
+          >
+            <p className="text-sm text-white mb-6 leading-relaxed">{confirmDialog.message}</p>
+            <div className="flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                className="px-5 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-semibold"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={confirmDialog.onConfirm}
+                className={`px-5 py-2 rounded-xl text-sm font-bold shadow-lg text-white ${
+                  confirmDialog.danger ? "bg-red-600 hover:bg-red-500" : "bg-emerald-600 hover:bg-emerald-500"
+                }`}
+              >
+                {confirmDialog.confirmLabel || "ยืนยัน"}
+              </button>
             </div>
           </div>
         </div>
