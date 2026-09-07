@@ -131,16 +131,29 @@ const createImage = (url: string): Promise<HTMLImageElement> =>
 
 async function getCroppedImg(
   imageSrc: string,
-  pixelCrop: { x: number; y: number; width: number; height: number }
+  pixelCrop: { x: number; y: number; width: number; height: number },
+  maxDimension = 1280,
+  quality = 0.8
 ): Promise<string> {
   const image = await createImage(imageSrc);
+
+  // ย่อขนาดภาพผลลัพธ์ลง ไม่ให้ใหญ่เกินจำเป็น (รูปจากมือถือมักมีความละเอียดสูงมาก
+  // ถ้าไม่ย่อ ไฟล์ base64 จะใหญ่มากจนอัปโหลด/โหลดไม่สำเร็จบนมือถือ)
+  let outWidth = pixelCrop.width;
+  let outHeight = pixelCrop.height;
+  if (outWidth > maxDimension || outHeight > maxDimension) {
+    const scale = maxDimension / Math.max(outWidth, outHeight);
+    outWidth = Math.round(outWidth * scale);
+    outHeight = Math.round(outHeight * scale);
+  }
+
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
 
   if (!ctx) return "";
 
-  canvas.width = pixelCrop.width;
-  canvas.height = pixelCrop.height;
+  canvas.width = outWidth;
+  canvas.height = outHeight;
 
   ctx.drawImage(
     image,
@@ -150,11 +163,42 @@ async function getCroppedImg(
     pixelCrop.height,
     0,
     0,
-    pixelCrop.width,
-    pixelCrop.height
+    outWidth,
+    outHeight
   );
 
-  return canvas.toDataURL("image/jpeg");
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+// ย่อ+บีบอัดรูปที่เลือกจากไฟล์ ก่อนแปลงเป็น base64
+// (กล้องมือถือมักถ่ายรูปที่ 3000-4000px ซึ่งใหญ่เกินความจำเป็นสำหรับแสดงผลบนเว็บ
+// และทำให้ payload ที่ส่งไป Supabase ใหญ่เกินไปจนล้มเหลวบนเน็ตมือถือ)
+async function compressImageFile(file: File, maxDimension = 1600, quality = 0.8): Promise<string> {
+  const rawDataUrl: string = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const image = await createImage(rawDataUrl);
+
+  let width = image.width;
+  let height = image.height;
+  if (width > maxDimension || height > maxDimension) {
+    const scale = maxDimension / Math.max(width, height);
+    width = Math.round(width * scale);
+    height = Math.round(height * scale);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return rawDataUrl;
+
+  ctx.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", quality);
 }
 
 interface ZonePrice {
@@ -409,16 +453,21 @@ function AdminTableManagerContent() {
     return d.toLocaleDateString("th-TH", { weekday: "short", day: "numeric", month: "short" });
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        setTempImageSrc(reader.result as string);
-        setZoom(1);
-        setCrop({ x: 0, y: 0 });
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    try {
+      // ย่อรูปก่อนนำไปครอบตัด กันรูปจากกล้องมือถือที่มีขนาดใหญ่มากทำให้ค้าง/โหลดไม่ขึ้น
+      const compressed = await compressImageFile(file, 1600, 0.85);
+      setTempImageSrc(compressed);
+      setZoom(1);
+      setCrop({ x: 0, y: 0 });
+    } catch (err) {
+      console.error(err);
+      alert("ไม่สามารถโหลดรูปภาพนี้ได้ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      e.target.value = "";
     }
   };
 
@@ -553,21 +602,27 @@ function AdminTableManagerContent() {
 
   const totalPrice = selectedTables.reduce((sum, id) => sum + getTablePrice(id), 0);
 
-  const handleAdminSlipSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAdminSlipSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 4 * 1024 * 1024) {
-      alert("ไฟล์สลิปมีขนาดใหญ่เกินไป กรุณาเลือกไฟล์ที่ไม่เกิน 4MB");
+    if (file.size > 15 * 1024 * 1024) {
+      alert("ไฟล์สลิปมีขนาดใหญ่เกินไป กรุณาเลือกไฟล์ที่ไม่เกิน 15MB");
+      e.target.value = "";
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setSlipImage(reader.result as string);
+    try {
+      // ย่อ+บีบอัดรูปสลิปก่อนบันทึก กันไฟล์จากกล้องมือถือ (มักใหญ่กว่า 4MB) ทำให้บันทึก/โหลดไม่สำเร็จ
+      const compressed = await compressImageFile(file, 1000, 0.75);
+      setSlipImage(compressed);
       setSlipFileName(file.name);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.error(err);
+      alert("ไม่สามารถโหลดรูปสลิปนี้ได้ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      e.target.value = "";
+    }
   };
 
   const handleRemoveAdminSlip = () => {
