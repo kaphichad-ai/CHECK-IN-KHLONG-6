@@ -244,55 +244,54 @@ function AdminTableManagerContent() {
   const exportAreaRef = useRef<HTMLDivElement>(null);
   const [isExportingImage, setIsExportingImage] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const handleExportImage = async () => {
-    if (!exportAreaRef.current) return;
-    try {
-      setIsExportingImage(true);
+ const handleExportImage = async () => {
+  if (!exportAreaRef.current) return;
+  try {
+    setIsExportingImage(true);
 
-      if (typeof document !== "undefined" && document.fonts?.ready) {
-        try {
-          await document.fonts.ready;
-        } catch {
-          // ignore
-        }
+    if (typeof document !== "undefined" && document.fonts?.ready) {
+      try {
+        await document.fonts.ready;
+      } catch {
+        // ignore
       }
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
-      const html2canvasModule = await import("html2canvas-pro");
-      const html2canvas = html2canvasModule.default || html2canvasModule;
-
-      // ตรวจสอบว่าเป็นมือถือหรือไม่ ถ้าใช่ให้ปรับ scale เป็น 1.5 เพื่อป้องกันหน่วยความจำเต็ม
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const canvasScale = isMobile ? 1.5 : 2;
-
-      const canvas = await html2canvas(exportAreaRef.current, {
-        backgroundColor: "#ffffff",
-        scale: canvasScale,
-        useCORS: true,
-        windowWidth: exportAreaRef.current.scrollWidth,
-        windowHeight: exportAreaRef.current.scrollHeight,
-      });
-
-      const dataUrl = canvas.toDataURL("image/png");
-
-      if (isMobile) {
-        // บนมือถือ (รวมถึง LINE): แสดงรูปใน Modal ของหน้าเว็บตัวเองแทนการเปิด window.open
-        setPreviewImage(dataUrl);
-      } else {
-        // บนคอมพิวเตอร์: ดาวน์โหลดไฟล์อัตโนมัติ
-        const link = document.createElement("a");
-        link.download = `ผังโต๊ะ-${currentConfig.artistName || currentDate}.png`;
-        link.href = dataUrl;
-        link.click();
-      }
-    } catch (err) {
-      console.error("Export image failed:", err);
-      alert("เกิดข้อผิดพลาดในการส่งออกรูปภาพ กรุณาลองใหม่อีกครั้ง");
-    } finally {
-      setIsExportingImage(false);
     }
-  };
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
+    const html2canvasModule = await import("html2canvas-pro");
+    const html2canvas = html2canvasModule.default || html2canvasModule;
+
+    // ตรวจสอบว่าเป็นมือถือ (Phone) หรือไม่ (ไม่รวม iPad เพื่อให้ iPad ยังโหลดไฟล์ตรงได้ปกติ)
+    const isPhone = /iPhone|iPod|Android/i.test(navigator.userAgent);
+    const canvasScale = isPhone ? 1.5 : 2; // มือถือลด scale ลงนิดหน่อยเพื่อกันหน่วยความจำเต็ม
+
+    const canvas = await html2canvas(exportAreaRef.current, {
+      backgroundColor: "#ffffff",
+      scale: canvasScale,
+      useCORS: true,
+      windowWidth: exportAreaRef.current.scrollWidth,
+      windowHeight: exportAreaRef.current.scrollHeight,
+    });
+
+    const dataUrl = canvas.toDataURL("image/png");
+
+    if (isPhone) {
+      // ถ้าเป็นมือถือ ให้แสดงรูปใน Modal แทนการสั่งดาวน์โหลดตรงๆ
+      setPreviewImage(dataUrl);
+    } else {
+      // ถ้าเป็นคอมพิวเตอร์ หรือ iPad ให้ดาวน์โหลดไฟล์ตามปกติ
+      const link = document.createElement("a");
+      link.download = `ผังโต๊ะ-${currentConfig.artistName || currentDate}.png`;
+      link.href = dataUrl;
+      link.click();
+    }
+  } catch (err) {
+    console.error("Export image failed:", err);
+    alert("เกิดข้อผิดพลาดในการส่งออกรูปภาพ กรุณาลองใหม่อีกครั้ง");
+  } finally {
+    setIsExportingImage(false);
+  }
+};
   const [tempImageSrc, setTempImageSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
