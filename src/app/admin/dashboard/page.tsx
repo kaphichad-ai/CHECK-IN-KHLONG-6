@@ -245,42 +245,74 @@ function AdminTableManagerContent() {
   const [isExportingImage, setIsExportingImage] = useState(false);
 
   const handleExportImage = async () => {
-  if (!exportAreaRef.current) return;
-  try {
-    setIsExportingImage(true);
+    if (!exportAreaRef.current) return;
+    try {
+      setIsExportingImage(true);
 
-    if (typeof document !== "undefined" && document.fonts?.ready) {
-      try {
-        await document.fonts.ready;
-      } catch {
-        // ignore
+      if (typeof document !== "undefined" && document.fonts?.ready) {
+        try {
+          await document.fonts.ready;
+        } catch {
+          // ignore
+        }
       }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const html2canvasModule = await import("html2canvas-pro");
+      const html2canvas = html2canvasModule.default || html2canvasModule;
+
+      const canvas = await html2canvas(exportAreaRef.current, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+        windowWidth: exportAreaRef.current.scrollWidth,
+        windowHeight: exportAreaRef.current.scrollHeight,
+      });
+
+      const dataUrl = canvas.toDataURL("image/png");
+
+      // เช็คว่าเป็นมือถือ หรือเปิดใน LINE Browser หรือไม่
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+      if (isMobile) {
+        // สร้างหน้าต่างใหม่แสดงรูป เพื่อให้ผู้ใช้ "กดค้างไว้แล้วเลือกบันทึกรูปภาพ" ได้ทันที
+        const win = window.open();
+        if (win) {
+          win.document.write(`
+            <html>
+              <head>
+                <title>บันทึกรูปภาพ</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <style>
+                  body { margin: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; }
+                  img { max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+                  p { margin-top: 15px; font-size: 14px; color: #ddd; }
+                </style>
+              </head>
+              <body>
+                <img src="${dataUrl}" alt="Exported Image" />
+                <p>💡 กดค้างที่รูปภาพด้านบน เพื่อบันทึกรูปลงในเครื่อง</p>
+              </body>
+            </html>
+          `);
+        } else {
+          // เผื่อกรณีเบราว์เซอร์บล็อก pop-up ให้ fallback เป็นการเปลี่ยนหน้าแทน
+          window.location.href = dataUrl;
+        }
+      } else {
+        // สำหรับคอมพิวเตอร์ ใช้ดาวน์โหลดตามปกติ
+        const link = document.createElement("a");
+        link.download = `ผังโต๊ะ-${currentConfig.artistName || currentDate}.png`;
+        link.href = dataUrl;
+        link.click();
+      }
+    } catch (err) {
+      console.error("Export image failed:", err);
+      alert("เกิดข้อผิดพลาดในการส่งออกรูปภาพ กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setIsExportingImage(false);
     }
-    await new Promise((resolve) => setTimeout(resolve, 150));
-
-    // เปลี่ยนมาเรียกใช้ html2canvas-pro แทน
-    const html2canvasModule = await import("html2canvas-pro");
-    const html2canvas = html2canvasModule.default || html2canvasModule;
-
-    const canvas = await html2canvas(exportAreaRef.current, {
-      backgroundColor: "#ffffff",
-      scale: 2,
-      useCORS: true,
-      windowWidth: exportAreaRef.current.scrollWidth,
-      windowHeight: exportAreaRef.current.scrollHeight,
-    });
-
-    const link = document.createElement("a");
-    link.download = `ผังโต๊ะ-${currentConfig.artistName || currentDate}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  } catch (err) {
-    console.error("Export image failed:", err);
-    alert("เกิดข้อผิดพลาดในการส่งออกรูปภาพ กรุณาลองใหม่อีกครั้ง");
-  } finally {
-    setIsExportingImage(false);
-  }
-};
+  };
 
   const [tempImageSrc, setTempImageSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
