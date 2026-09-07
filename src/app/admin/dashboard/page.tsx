@@ -243,7 +243,7 @@ function AdminTableManagerContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const exportAreaRef = useRef<HTMLDivElement>(null);
   const [isExportingImage, setIsExportingImage] = useState(false);
-
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const handleExportImage = async () => {
     if (!exportAreaRef.current) return;
     try {
@@ -261,9 +261,13 @@ function AdminTableManagerContent() {
       const html2canvasModule = await import("html2canvas-pro");
       const html2canvas = html2canvasModule.default || html2canvasModule;
 
+      // ตรวจสอบว่าเป็นมือถือหรือไม่ ถ้าใช่ให้ปรับ scale เป็น 1.5 เพื่อป้องกันหน่วยความจำเต็ม
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const canvasScale = isMobile ? 1.5 : 2;
+
       const canvas = await html2canvas(exportAreaRef.current, {
         backgroundColor: "#ffffff",
-        scale: 2,
+        scale: canvasScale,
         useCORS: true,
         windowWidth: exportAreaRef.current.scrollWidth,
         windowHeight: exportAreaRef.current.scrollHeight,
@@ -271,36 +275,11 @@ function AdminTableManagerContent() {
 
       const dataUrl = canvas.toDataURL("image/png");
 
-      // เช็คว่าเป็นมือถือ หรือเปิดใน LINE Browser หรือไม่
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
       if (isMobile) {
-        // สร้างหน้าต่างใหม่แสดงรูป เพื่อให้ผู้ใช้ "กดค้างไว้แล้วเลือกบันทึกรูปภาพ" ได้ทันที
-        const win = window.open();
-        if (win) {
-          win.document.write(`
-            <html>
-              <head>
-                <title>บันทึกรูปภาพ</title>
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                  body { margin: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; }
-                  img { max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-                  p { margin-top: 15px; font-size: 14px; color: #ddd; }
-                </style>
-              </head>
-              <body>
-                <img src="${dataUrl}" alt="Exported Image" />
-                <p>💡 กดค้างที่รูปภาพด้านบน เพื่อบันทึกรูปลงในเครื่อง</p>
-              </body>
-            </html>
-          `);
-        } else {
-          // เผื่อกรณีเบราว์เซอร์บล็อก pop-up ให้ fallback เป็นการเปลี่ยนหน้าแทน
-          window.location.href = dataUrl;
-        }
+        // บนมือถือ (รวมถึง LINE): แสดงรูปใน Modal ของหน้าเว็บตัวเองแทนการเปิด window.open
+        setPreviewImage(dataUrl);
       } else {
-        // สำหรับคอมพิวเตอร์ ใช้ดาวน์โหลดตามปกติ
+        // บนคอมพิวเตอร์: ดาวน์โหลดไฟล์อัตโนมัติ
         const link = document.createElement("a");
         link.download = `ผังโต๊ะ-${currentConfig.artistName || currentDate}.png`;
         link.href = dataUrl;
