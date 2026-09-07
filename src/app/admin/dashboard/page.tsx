@@ -333,6 +333,18 @@ function AdminTableManagerContent() {
         backgroundColor: "#ffffff",
         scale: EXPORT_SCALE,
         useCORS: true,
+        // ตอน Export รูป ให้ซ่อนเฉพาะ UI ที่มีไว้สำหรับจัดการบนหน้าเว็บ
+        // เช่น แถบสถานะ, เลือกวัน, ปุ่มแก้ไข/ลบรูป และปุ่มแก้ชื่อวง
+        onclone: (clonedDoc) => {
+          clonedDoc.querySelectorAll(".export-hide").forEach((node) => {
+            (node as HTMLElement).style.display = "none";
+          });
+
+          // แสดงเฉพาะส่วนราคาที่สร้างไว้สำหรับรูป Export
+          clonedDoc.querySelectorAll(".export-only-prices").forEach((node) => {
+            (node as HTMLElement).style.display = "flex";
+          });
+        },
         // fix ทั้งความกว้างของ element และ "หน้าต่างจำลอง" ให้เท่ากันเสมอ
         // ผลลัพธ์คือไฟล์ที่ export ออกมาจะมีขนาด/สัดส่วนเหมือนกันทุกอุปกรณ์ (ไม่ย่อ/ไม่ตัดขอบบน iPad, iOS)
         width: FIXED_EXPORT_WIDTH,
@@ -1025,7 +1037,7 @@ function AdminTableManagerContent() {
       {/* พื้นที่ที่จะถูกบันทึก/พิมพ์ลง PDF (รวม Banner และผังโต๊ะ) */}
       <div ref={exportAreaRef} className="w-full flex flex-col items-center space-y-6 printable-export-area">
         {/* คำอธิบายสถานะสีโต๊ะ (ซ่อนตอนพิมพ์) */}
-        <div className="w-full bg-[#111111] border border-white/[0.08] rounded-2xl p-4 print:hidden flex flex-wrap items-center justify-center gap-6 text-xs shadow-md">
+        <div className="w-full bg-[#111111] border border-white/[0.08] rounded-2xl p-4 print:hidden export-hide flex flex-wrap items-center justify-center gap-6 text-xs shadow-md">
           <div className="flex items-center gap-2">
             <div className="w-4 h-4 rounded-full bg-emerald-600 ring-1 ring-emerald-300/40"></div>
             <span className="text-emerald-400 font-bold">ว่าง (คลิกเพื่อเลือก)</span>
@@ -1049,7 +1061,7 @@ function AdminTableManagerContent() {
         </div>
 
         {/* DATE BAR SELECTOR (ซ่อนตอนพิมพ์ PDF) */}
-        <div className="w-full bg-[#111111] border border-white/[0.08] p-3 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-3 print:hidden">
+        <div className="w-full bg-[#111111] border border-white/[0.08] p-3 rounded-2xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-3 print:hidden export-hide">
           <div className="flex items-center gap-2 w-full md:w-auto">
             <span className="text-xs font-bold text-yellow-400 whitespace-nowrap">📅 เลือกวัน:</span>
             <div className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-full">
@@ -1095,7 +1107,7 @@ function AdminTableManagerContent() {
                 className="w-full h-56 md:h-80 print:h-[90px] object-cover transition-transform duration-500"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-6 print:p-3">
-                <span className="text-yellow-400 text-xs print:text-[9px] font-bold tracking-widest uppercase">SPECIAL CONCERT ({currentDate})</span>
+                <span className="text-yellow-400 text-xs print:text-[9px] font-bold tracking-widest uppercase export-hide">SPECIAL CONCERT ({currentDate})</span>
 
                 {isEditingArtistName ? (
                   <div className="flex items-center gap-2 mt-1 max-w-md print:hidden">
@@ -1121,7 +1133,7 @@ function AdminTableManagerContent() {
                     </h2>
                     <button
                       onClick={() => setIsEditingArtistName(true)}
-                      className="text-zinc-300 hover:text-yellow-400 text-xs bg-black/40 hover:bg-black/70 px-2.5 py-1 rounded-xl border border-white/[0.08] transition-all print:hidden"
+                      className="text-zinc-300 hover:text-yellow-400 text-xs bg-black/40 hover:bg-black/70 px-2.5 py-1 rounded-xl border border-white/[0.08] transition-all print:hidden export-hide"
                     >
                       ✏️ แก้ชื่อวง
                     </button>
@@ -1129,7 +1141,7 @@ function AdminTableManagerContent() {
                 )}
               </div>
 
-              <div className="absolute top-4 right-4 flex gap-2 z-10 print:hidden">
+              <div className="absolute top-4 right-4 flex gap-2 z-10 print:hidden export-hide">
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   className="bg-black/60 hover:bg-black/80 text-white text-xs font-bold px-3 py-1.5 rounded-xl shadow-lg border border-white/[0.08] backdrop-blur-sm transition-all flex items-center gap-1"
@@ -1171,6 +1183,27 @@ function AdminTableManagerContent() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* ราคาแต่ละโซน — แสดงเฉพาะตอน Export รูปภาพ ไม่กระทบหน้าเว็บปกติ */}
+        <div
+          className="export-only-prices w-full items-center justify-center gap-3 flex-wrap px-4 py-3 rounded-2xl"
+          style={{ display: "none" }}
+        >
+          {(["VIP", "A", "B", "S", "SPECIAL"] as const).map((zoneKey) => {
+            const zone = prices[zoneKey] || DEFAULT_PRICES[zoneKey];
+            return (
+              <div
+                key={zoneKey}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-300 bg-white text-black shadow-sm"
+              >
+                <span className="font-black text-sm">{zone.name}</span>
+                <span className="font-black text-sm text-red-600">
+                  ฿{(Number(zone.price) || 0).toLocaleString()}
+                </span>
+              </div>
+            );
+          })}
         </div>
 
         {/* Main Layout Map */}
