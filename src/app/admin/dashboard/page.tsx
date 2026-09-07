@@ -1962,6 +1962,26 @@ function AdminTableManagerContent() {
           />
         </div>
       )}
+
+      {previewImage && (
+        <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+          <button
+            onClick={() => setPreviewImage(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white text-2xl font-bold bg-[#18181b] w-10 h-10 rounded-full border border-white/[0.08] flex items-center justify-center"
+          >
+            ✕
+          </button>
+          <p className="text-white text-xs font-bold bg-black/70 px-4 py-2 rounded-xl mb-3 text-center">
+            📌 กดค้างที่รูปด้านล่าง แล้วเลือก &quot;บันทึกลงในรูปภาพ&quot; เพื่อดาวน์โหลด
+          </p>
+          <img
+            src={previewImage}
+            alt="ผังโต๊ะสำหรับดาวน์โหลด"
+            className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl border border-white/[0.08]"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
