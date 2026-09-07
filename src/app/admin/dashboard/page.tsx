@@ -290,6 +290,20 @@ function AdminTableManagerContent() {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
  const handleExportImage = async () => {
     if (!exportAreaRef.current) return;
+    const el = exportAreaRef.current;
+
+    // ความกว้าง "มาตรฐาน" ของผังโต๊ะตอนส่งออก ใช้ค่าคงที่เดียวกันทุกอุปกรณ์
+    // (ต้อง >= min-w-[850px] ของกริดผังโต๊ะ + padding โดยรอบ ไม่งั้นจะโดนตัดขอบ)
+    const FIXED_EXPORT_WIDTH = 1000;
+    const EXPORT_SCALE = 2; // resolution คงที่ ไม่ผูกกับขนาดหน้าจอ/เครื่อง
+
+    // เก็บ inline style เดิมไว้ เพื่อคืนค่ากลับหลังจับภาพเสร็จ
+    const originalStyle = {
+      width: el.style.width,
+      maxWidth: el.style.maxWidth,
+      minWidth: el.style.minWidth,
+    };
+
     try {
       setIsExportingImage(true);
 
@@ -300,26 +314,34 @@ function AdminTableManagerContent() {
           // ignore
         }
       }
+
+      // บังคับให้ element ที่จะ export กว้างเท่ากับ desktop เสมอ ไม่ว่าจะเปิดจากมือถือ/iPad/ก็ตาม
+      // เพื่อไม่ให้ layout ไปหดตาม viewport จริงแล้วทำให้ html2canvas จับภาพได้แค่บางส่วน
+      // (โซน B / BAR / โซน S ที่อยู่ทางขวาของผังจะหายไปถ้าไม่ fix ความกว้างตรงนี้)
+      el.style.width = `${FIXED_EXPORT_WIDTH}px`;
+      el.style.minWidth = `${FIXED_EXPORT_WIDTH}px`;
+      el.style.maxWidth = "none";
+
+      // รอให้ browser reflow ตามความกว้างใหม่ก่อนค่อยจับภาพ
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       await new Promise((resolve) => setTimeout(resolve, 150));
 
       const html2canvasModule = await import("html2canvas-pro");
       const html2canvas = html2canvasModule.default || html2canvasModule;
 
-      const isPhone = /iPhone|iPod|Android/i.test(navigator.userAgent);
-      const canvasScale = isPhone ? 1.5 : 2;
-
-      // กำหนดขนาดจำกัดเฉพาะส่วน exportAreaRef ให้เป็นสัดส่วนที่สวยงาม (เช่น ฟิกซ์ความกว้าง หรือใช้ scrollWidth)
-      const canvas = await html2canvas(exportAreaRef.current, {
+      const canvas = await html2canvas(el, {
         backgroundColor: "#ffffff",
-        scale: canvasScale,
+        scale: EXPORT_SCALE,
         useCORS: true,
-        // กำหนดขนาดความกว้าง-สูงให้พอดีกับเนื้อหาข้างใน ไม่ให้ยืดตามหน้าจอหลักเกินไป
-        width: exportAreaRef.current.scrollWidth,
-        windowWidth: exportAreaRef.current.scrollWidth,
+        // fix ทั้งความกว้างของ element และ "หน้าต่างจำลอง" ให้เท่ากันเสมอ
+        // ผลลัพธ์คือไฟล์ที่ export ออกมาจะมีขนาด/สัดส่วนเหมือนกันทุกอุปกรณ์ (ไม่ย่อ/ไม่ตัดขอบบน iPad, iOS)
+        width: FIXED_EXPORT_WIDTH,
+        windowWidth: FIXED_EXPORT_WIDTH,
       });
 
       const dataUrl = canvas.toDataURL("image/png");
 
+      const isPhone = /iPhone|iPod|Android/i.test(navigator.userAgent);
       if (isPhone) {
         setPreviewImage(dataUrl);
       } else {
@@ -332,6 +354,10 @@ function AdminTableManagerContent() {
       console.error("Export image failed:", err);
       alert("เกิดข้อผิดพลาดในการส่งออกรูปภาพ กรุณาลองใหม่อีกครั้ง");
     } finally {
+      // คืนค่า style เดิมของหน้าจอเสมอ ไม่ว่าจะสำเร็จหรือ error
+      el.style.width = originalStyle.width;
+      el.style.minWidth = originalStyle.minWidth;
+      el.style.maxWidth = originalStyle.maxWidth;
       setIsExportingImage(false);
     }
   };
