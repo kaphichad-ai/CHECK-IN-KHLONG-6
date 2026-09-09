@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   title: "CHECK IN KHLONG 6",
   description: "CHECK IN KHLONG 6",
   icons: {
-    icon: "/logo.png",
+    icon: "/icon.png",
   },
 };
 
