@@ -1,17 +1,24 @@
 'use client';
 
 import Link from 'next/link';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 // ==========================================
 // INTERFACES
 // ==========================================
 
-interface DailyPromotion {
-  dayIndex: number;
-  dayName: string;
-  images: string[];
+interface Promotion {
+  id: string;
+  title: string;
+  description: string | null;
+  image: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 interface MenuCategory {
@@ -104,105 +111,123 @@ function Carousel({ galleryImages }: { galleryImages: string[] }) {
   );
 }
 
-// คอมโพเนนต์แสดงรูปโปรโมชั่นของ "วันนี้" แบบไดนามิก
-function TodayPromotionSection({ dailyPromotions }: { dailyPromotions: DailyPromotion[] }) {
-  const [todayPromo, setTodayPromo] = useState<DailyPromotion | null>(null);
-  const [activeMobileIdx, setActiveMobileIdx] = useState(0);
+// คอมโพเนนต์แสดงโปรโมชั่นจากตาราง `promotions`
+function PromotionSection({ promotions }: { promotions: Promotion[] }) {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const sliderRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!dailyPromotions || dailyPromotions.length === 0) return;
-    const currentDayIndex = new Date().getDay();
-    const promo = dailyPromotions.find((p) => p.dayIndex === currentDayIndex);
-    setTodayPromo(promo || dailyPromotions[0]);
-  }, [dailyPromotions]);
+  const visiblePromotions = promotions.filter((promo) => Boolean(promo.image));
 
-  // Auto Slide สำหรับมือถือ
-  useEffect(() => {
-    if (!todayPromo?.images || todayPromo.images.length <= 1) return;
-    const interval = setInterval(() => {
-      setActiveMobileIdx((prev) => (prev + 1) % todayPromo.images.length);
-    }, 3500);
-    return () => clearInterval(interval);
-  }, [todayPromo]);
+  if (visiblePromotions.length === 0) return null;
 
-  if (!todayPromo || !todayPromo.images || todayPromo.images.length === 0) return null;
+  const scrollPromotions = (direction: 'left' | 'right') => {
+    if (!sliderRef.current) return;
+    sliderRef.current.scrollBy({
+      left: direction === 'right' ? 260 : -260,
+      behavior: 'smooth',
+    });
+  };
+
+  const isScrollable = visiblePromotions.length > 4;
 
   return (
-    <div className="max-w-4xl mx-auto mt-8 px-4">
-      <div className="flex items-center justify-center gap-2 mb-4">
-        <span className="w-2.5 h-2.5 rounded-full bg-red-600 animate-ping" />
-        <h2 className="font-black text-lg md:text-xl text-center">
-          โปรโมชั่นประจำ{todayPromo.dayName}
-        </h2>
-      </div>
-
-      {/* Desktop View */}
-      <div className="hidden sm:grid grid-cols-3 gap-4 select-none">
-        {todayPromo.images.map((imgUrl, idx) => (
-          <div
-            key={idx}
-            onClick={() => setSelectedImage(imgUrl)}
-            className="group relative rounded-2xl overflow-hidden shadow-lg border border-white/10 bg-[#121212] aspect-[4/3] cursor-pointer hover:border-[#E8A33D]/50 transition-all duration-300"
-          >
-            <img
-              src={imgUrl}
-              alt={`โปรโมชั่น ${todayPromo.dayName} รูปที่ ${idx + 1}`}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            />
-            <span className="absolute top-2 left-2 bg-[#E8A33D] text-[#19160F] text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-md backdrop-blur-md">
-              PROMO {idx + 1}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      {/* Mobile View */}
-      <div className="block sm:hidden select-none">
-        <div
-          onClick={() => setSelectedImage(todayPromo.images[activeMobileIdx])}
-          className="relative rounded-2xl overflow-hidden shadow-lg border border-white/10 bg-[#121212] aspect-[4/3] cursor-pointer"
-        >
-          <img
-            src={todayPromo.images[activeMobileIdx]}
-            alt={`โปรโมชั่น ${todayPromo.dayName}`}
-            className="w-full h-full object-cover transition-all duration-500"
-          />
-          <span className="absolute top-2.5 left-2.5 bg-[#E8A33D] text-[#19160F] text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-md backdrop-blur-md">
-            PROMO {activeMobileIdx + 1}
+    <div className="w-full max-w-[1000px] mx-auto mt-8 px-0 sm:px-2">
+      {/* หัวข้อ */}
+      <div className="flex items-center justify-between mb-5 px-1">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 animate-ping" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-600" />
           </span>
+          <h2 className="font-black text-lg md:text-xl text-[#19160F]">
+            โปรโมชั่น
+          </h2>
         </div>
 
-        <div className="flex justify-center items-center gap-1.5 mt-3">
-          {todayPromo.images.map((_, idx) => (
+        {isScrollable && (
+          <div className="flex items-center gap-2">
             <button
-              key={idx}
-              onClick={() => setActiveMobileIdx(idx)}
-              className={`h-1.5 rounded-full transition-all duration-300 ${
-                activeMobileIdx === idx ? 'w-5 bg-[#E8A33D]' : 'w-1.5 bg-white/20'
-              }`}
-            />
+              type="button"
+              onClick={() => scrollPromotions('left')}
+              aria-label="โปรโมชั่นก่อนหน้า"
+              className="w-9 h-9 rounded-full bg-white border border-black/10 shadow-sm flex items-center justify-center text-[#19160F] hover:bg-[#19160F] hover:text-white active:scale-95 transition-all"
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollPromotions('right')}
+              aria-label="โปรโมชั่นถัดไป"
+              className="w-9 h-9 rounded-full bg-[#19160F] text-white shadow-sm flex items-center justify-center hover:bg-[#D62828] active:scale-95 transition-all"
+            >
+              ›
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Promo viewport — 1-4 ใบจะอยู่ตรงกลาง, มากกว่า 4 ใบเลื่อนไปทางขวาได้ */}
+      <div className="relative w-full">
+        <div
+          ref={sliderRef}
+          className={`w-full flex gap-4 overflow-x-auto snap-x snap-mandatory scroll-smooth pb-3 px-1 no-scrollbar ${
+            isScrollable ? 'justify-start' : 'justify-center'
+          }`}
+          style={{ scrollbarWidth: 'none' }}
+        >
+          {visiblePromotions.map((promo, idx) => (
+            <button
+              type="button"
+              key={promo.id}
+              onClick={() => promo.image && setSelectedImage(promo.image)}
+              className="group relative shrink-0 snap-center w-[210px] sm:w-[220px] aspect-square rounded-2xl overflow-hidden bg-white border border-black/10 shadow-md hover:-translate-y-1 hover:shadow-xl hover:border-[#E8A33D]/60 transition-all duration-300 text-left cursor-pointer"
+            >
+              <img
+                src={promo.image!}
+                alt={promo.title || `โปรโมชั่น ${idx + 1}`}
+                className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-[1.03]"
+              />
+              <span className="absolute top-2.5 left-2.5 bg-[#E8A33D] text-[#19160F] text-[10px] font-black px-2.5 py-1 rounded-full shadow-md">
+                PROMO {idx + 1}
+              </span>
+            </button>
           ))}
         </div>
+
+        {isScrollable && (
+          <div className="pointer-events-none absolute right-0 top-0 bottom-3 w-20 bg-gradient-to-l from-[#EDE7D9] to-transparent" />
+        )}
       </div>
 
-      {/* Lightbox Modal */}
+      {isScrollable && (
+        <div className="flex justify-center items-center gap-2 mt-1 text-[10px] text-black/40 font-medium">
+          <span>←</span>
+          <span>เลื่อนดูโปรโมชั่น</span>
+          <span>→</span>
+        </div>
+      )}
+
+      {/* Preview รูปใหญ่ */}
       {selectedImage && (
         <div
           onClick={() => setSelectedImage(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 transition-opacity animate-in fade-in"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in"
         >
-          <div className="relative max-w-3xl max-h-[85vh] w-full flex justify-center items-center">
+          <div
+            className="relative max-w-4xl max-h-[90vh] w-full flex justify-center items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
+              type="button"
               onClick={() => setSelectedImage(null)}
-              className="absolute -top-10 right-0 text-white/80 hover:text-white text-sm bg-white/10 px-3 py-1 rounded-full backdrop-blur-md"
+              className="absolute -top-11 right-0 text-white/90 hover:text-white text-sm bg-white/10 hover:bg-white/20 px-4 py-2 rounded-full backdrop-blur-md transition-all"
             >
               ✕ ปิด
             </button>
             <img
               src={selectedImage}
               alt="รูปขยายโปรโมชั่น"
-              className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl border border-white/10"
             />
           </div>
         </div>
@@ -212,8 +237,13 @@ function TodayPromotionSection({ dailyPromotions }: { dailyPromotions: DailyProm
 }
 
 function EventCard({ event }: { event: EventItem }) {
+  // ทั้งการ์ดกดได้เลย ไม่ต้องกดเฉพาะปุ่ม — พาไปหน้าไปที่จองของคอนเสิร์ตนั้นๆ ใน /booking โดยตรง
+  // ตัดข้อมูลสถานที่และเวลาออก เหลือแค่รูป โปสเตอร์ / ชื่อการแสดง / วันที่ / ปุ่มจองเลย
   return (
-    <div className="group shrink-0 w-72 snap-start rounded-3xl overflow-hidden bg-[#121212] border border-white/10 text-white shadow-xl hover:-translate-y-1.5 transition-all duration-300 flex flex-col justify-between">
+    <Link
+      href={`/booking?date=${event.date}`}
+      className="group shrink-0 w-72 snap-start rounded-3xl overflow-hidden bg-[#121212] border border-white/10 text-white shadow-xl hover:-translate-y-1.5 transition-all duration-300 flex flex-col justify-between cursor-pointer"
+    >
       <div className="relative aspect-[3/4] w-full overflow-hidden bg-black/40">
         <img
           src={event.image}
@@ -225,35 +255,31 @@ function EventCard({ event }: { event: EventItem }) {
         </span>
       </div>
 
-      <div className="p-4 flex flex-col gap-2">
+      <div className="p-4 flex flex-col gap-3">
         <h3 className="font-black text-lg leading-snug line-clamp-2 text-white group-hover:text-[#E8A33D] transition-colors">
           {event.title}
         </h3>
 
-        <div className="flex flex-col gap-1.5 text-xs text-white/70 mt-1">
-          <div className="flex items-center gap-2 text-emerald-400 font-semibold">
-            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <span>{event.displayDate}</span>
-          </div>
-        </div>
+        
 
-        <Link
-          href={`/booking?date=${event.date}`}
-          className="mt-3 w-full py-2.5 px-4 rounded-xl bg-[#D62828] hover:bg-[#b82020] text-white font-black text-sm text-center flex items-center justify-center gap-2 shadow-lg transition-colors active:scale-95"
-        >
+        <span className="w-full py-2.5 px-4 rounded-xl bg-[#D62828] group-hover:bg-[#b82020] text-white font-black text-sm text-center flex items-center justify-center gap-2 shadow-lg transition-colors group-active:scale-95">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 002 2h14a2 2 0 002-2V7a2 2 0 00-2-2H5z" />
           </svg>
-          <span>จองโต๊ะเลย</span>
-        </Link>
+          <span>จองเลย</span>
+        </span>
       </div>
-    </div>
+    </Link>
   );
 }
 
-function BentoMenu({ onOpenMenuModal }: { onOpenMenuModal: () => void }) {
+function BentoMenu({
+  onOpenMenuModal,
+  onOpenContactModal,
+}: {
+  onOpenMenuModal: () => void;
+  onOpenContactModal: () => void;
+}) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
       <Link
@@ -307,9 +333,9 @@ function BentoMenu({ onOpenMenuModal }: { onOpenMenuModal: () => void }) {
         </span>
       </a>
 
-      <Link
-        href="/contact"
-        className="col-span-1 rounded-3xl bg-[#E8A33D] text-[#19160F] p-5 flex flex-col justify-between group hover:scale-[1.02] transition-transform duration-300 shadow-md min-h-[120px]"
+      <button
+        onClick={onOpenContactModal}
+        className="col-span-1 rounded-3xl bg-[#E8A33D] text-[#19160F] p-5 flex flex-col justify-between group hover:scale-[1.02] transition-transform duration-300 shadow-md min-h-[120px] text-left cursor-pointer"
       >
         <div className="flex justify-between items-start">
           <h3 className="text-lg font-black leading-tight">ติดต่อ<br />แอดมิน</h3>
@@ -318,7 +344,7 @@ function BentoMenu({ onOpenMenuModal }: { onOpenMenuModal: () => void }) {
         <span className="text-xs font-bold group-hover:translate-x-1 transition-transform">
           สอบถาม →
         </span>
-      </Link>
+      </button>
     </div>
   );
 }
@@ -368,24 +394,14 @@ function MenuModal({ isOpen, onClose, menuData }: { isOpen: boolean; onClose: ()
       >
         <div className="flex items-center justify-between px-6 pt-5 pb-2">
           <div>
-            <span className="block text-[11px] text-gray-400 font-medium">เมนูอาหาร</span>
+            <span className="block text-[11px] text-gray-400 font-medium"></span>
             <h2 className="text-xl font-bold tracking-tight text-[#1A1A1A] capitalize">
               {currentCategoryData.categoryLabel}
             </h2>
           </div>
 
           <div className="flex items-center gap-2">
-            {currentImages[currentIndex] && (
-              <button
-                onClick={() => window.open(currentImages[currentIndex], '_blank')}
-                title="เปิดรูปขนาดใหญ่"
-                className="w-8 h-8 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-gray-600 transition-colors"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                </svg>
-              </button>
-            )}
+            
 
             <button
               onClick={onClose}
@@ -465,11 +481,172 @@ function MenuModal({ isOpen, onClose, menuData }: { isOpen: boolean; onClose: ()
         </div>
 
         <div className="px-6 py-3 flex items-center justify-between text-[11px] text-gray-400 border-t border-black/5 bg-[#F5F0E1]">
-          <span>รายการอาหารอาจมีการเปลี่ยนแปลงได้</span>
+          <span></span>
           <span className="font-semibold text-gray-500">
             {currentIndex + 1} / {currentImages.length || 0}
           </span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// CONTACT MODAL
+// ==========================================
+
+interface ContactChannel {
+  id: string;
+  image: string | null;
+  linkUrl: string;
+}
+
+function ContactModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  const supabase = createClient();
+  const [channels, setChannels] = useState<ContactChannel[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    async function fetchContacts() {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('is_active', true)
+        .order('sort_order', { ascending: true });
+
+      if (!error && data) {
+        setChannels(
+          data.map((c: any) => ({
+            id: c.id,
+            image: c.image || null,
+            linkUrl: c.link_url,
+          }))
+        );
+        setCurrentIndex(0);
+      }
+      setIsLoading(false);
+    }
+
+    fetchContacts();
+  }, [isOpen, supabase]);
+
+  if (!isOpen) return null;
+
+  const currentChannel = channels[currentIndex];
+
+  const goPrev = () => {
+    setCurrentIndex((prev) => (prev === 0 ? channels.length - 1 : prev - 1));
+  };
+
+  const goNext = () => {
+    setCurrentIndex((prev) => (prev === channels.length - 1 ? 0 : prev + 1));
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-lg bg-[#FAF7ED] text-[#2C2925] rounded-[32px] overflow-hidden shadow-2xl flex flex-col border border-white/40"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 pt-5 pb-2">
+          <div>
+            <span className="block text-[11px] text-gray-400 font-medium">ติดต่อเรา</span>
+            <h2 className="text-xl font-bold tracking-tight text-[#1A1A1A]">ติดต่อแอดมิน</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-[#E5DDCB] hover:bg-[#D8CEB8] active:scale-95 flex items-center justify-center text-gray-700 font-bold transition-all text-sm"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="relative px-6 py-2 flex-1 flex flex-col items-center justify-center gap-5">
+          {isLoading && <div className="text-gray-400 text-sm py-10 text-center">กำลังโหลด...</div>}
+
+          {!isLoading && channels.length === 0 && (
+            <div className="text-gray-400 text-sm py-10 text-center">ยังไม่มีช่องทางติดต่อที่เปิดใช้งาน</div>
+          )}
+
+          {!isLoading && currentChannel && (
+            <>
+              <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-[#2C2925] shadow-inner border border-black/5 flex items-center justify-center">
+                {currentChannel.image ? (
+                  <img
+                    src={currentChannel.image}
+                    alt={`ช่องทางติดต่อ ${currentIndex + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-6xl">💬</div>
+                )}
+
+                {channels.length > 1 && (
+                  <>
+                    <button
+                      onClick={goPrev}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 text-white backdrop-blur-sm flex items-center justify-center transition-all active:scale-90 text-lg"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      onClick={goNext}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/30 hover:bg-black/50 text-white backdrop-blur-sm flex items-center justify-center transition-all active:scale-90 text-lg"
+                    >
+                      ›
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <a
+                href={currentChannel.linkUrl || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full max-w-[240px] py-3.5 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white font-black text-base text-center shadow-lg active:scale-95 transition-all"
+              >
+                ติดต่อเลย
+              </a>
+            </>
+          )}
+        </div>
+
+        {!isLoading && channels.length > 1 && (
+          <div className="px-6 py-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar justify-center">
+              {channels.map((c, idx) => (
+                <button
+                  key={c.id}
+                  onClick={() => setCurrentIndex(idx)}
+                  className={`relative w-12 h-14 rounded-xl overflow-hidden border-2 transition-all flex-shrink-0 ${
+                    currentIndex === idx
+                      ? 'border-[#5A382D] scale-105 shadow-md ring-2 ring-[#5A382D]/20'
+                      : 'border-transparent opacity-60 hover:opacity-100'
+                  }`}
+                >
+                  {c.image ? (
+                    <img src={c.image} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-[#EADECE] text-lg">💬</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!isLoading && channels.length > 0 && (
+          <div className="px-6 py-3 flex items-center justify-center text-[11px] text-gray-400 border-t border-black/5 bg-[#F5F0E1]">
+            <span className="font-semibold text-gray-500">แตะรูปเพื่อไปยังช่องทางติดต่อ</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -482,9 +659,10 @@ function MenuModal({ isOpen, onClose, menuData }: { isOpen: boolean; onClose: ()
 export default function HomePage() {
   const supabase = createClient();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isContactOpen, setIsContactOpen] = useState(false);
 
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
-  const [dailyPromotions, setDailyPromotions] = useState<DailyPromotion[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [menuData, setMenuData] = useState<MenuCategory[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<EventItem[]>([]);
 
@@ -500,23 +678,30 @@ export default function HomePage() {
         setGalleryImages(banners.map((b: any) => b.image_url));
       }
 
-      // 2. ดึงข้อมูลโปรโมชั่นรายวัน
-      const { data: promos } = await supabase
-        .from('daily_promotions')
+      // 2. ดึงข้อมูลโปรโมชั่นจากตาราง promotions
+      const promoNow = new Date();
+      const promoTodayStr = `${promoNow.getFullYear()}-${String(
+        promoNow.getMonth() + 1
+      ).padStart(2, '0')}-${String(promoNow.getDate()).padStart(2, '0')}`;
+
+      const { data: promos, error: promoError } = await supabase
+        .from('promotions')
         .select('*')
-        .order('day_index', { ascending: true });
-      if (promos && promos.length > 0) {
-        setDailyPromotions(
-          promos.map((p: any) => ({
-            dayIndex: p.day_index,
-            dayName: p.day_name,
-            images: p.images || [],
-          }))
-        );
+        .eq('is_active', true)
+        .or(`start_date.is.null,start_date.lte.${promoTodayStr}`)
+        .or(`end_date.is.null,end_date.gte.${promoTodayStr}`)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: false });
+
+      if (!promoError && promos) {
+        setPromotions(promos as Promotion[]);
+      } else if (promoError) {
+        console.error('Error fetching promotions:', promoError);
+        setPromotions([]);
       }
 
       // 3. ดึงข้อมูลเมนูอาหาร
-      const { data: menus } = await supabase.from('menus').select('*');
+      const { data: menus } = await supabase.from('menus').select('*').order('sort_order', { ascending: true });
       if (menus && menus.length > 0) {
         setMenuData(
           menus.map((m: any) => ({
@@ -527,10 +712,13 @@ export default function HomePage() {
         );
       }
 
-      // 4. ดึงข้อมูล Event / คอนเสิร์ต
+      // 4. ดึงข้อมูล Event / คอนเสิร์ต — เอาเฉพาะที่เปิดแสดงและยังไม่ผ่านไป
+      const todayStr = new Date().toISOString().slice(0, 10);
       const { data: events } = await supabase
         .from('events')
         .select('*')
+        .eq('is_active', true)
+        .gte('date', todayStr)
         .order('date', { ascending: true });
       if (events && events.length > 0) {
         setUpcomingEvents(
@@ -557,13 +745,13 @@ export default function HomePage() {
       {/* Carousel & โปรโมชั่นวันนี้ */}
       <section className="px-6 md:px-12 pb-12">
         <Carousel galleryImages={galleryImages} />
-        <TodayPromotionSection dailyPromotions={dailyPromotions} />
+        <PromotionSection promotions={promotions} />
       </section>
 
       {/* Bento Grid Menu Section */}
       <section className="px-6 md:px-12 pb-14">
-        <h2 className="font-black text-xl mb-6 text-center">เลือกสิ่งที่ต้องการ</h2>
-        <BentoMenu onOpenMenuModal={() => setIsMenuOpen(true)} />
+        <h2 className="font-black text-xl mb-6 text-center">รายการ</h2>
+        <BentoMenu onOpenMenuModal={() => setIsMenuOpen(true)} onOpenContactModal={() => setIsContactOpen(true)} />
       </section>
 
       {/* Event Cards Section */}
@@ -626,12 +814,12 @@ export default function HomePage() {
               </a>
             </div>
 
-            <Link 
-              href="/contact" 
+            <button
+              onClick={() => setIsContactOpen(true)}
               className="text-xs font-bold hover:underline transition-all mt-1"
             >
               ติดต่อปัญหา
-            </Link>
+            </button>
           </div>
         </div>
       </footer>
@@ -642,6 +830,9 @@ export default function HomePage() {
         onClose={() => setIsMenuOpen(false)} 
         menuData={menuData}
       />
+
+      {/* POPUP CONTACT MODAL */}
+      <ContactModal isOpen={isContactOpen} onClose={() => setIsContactOpen(false)} />
     </main>
   );
 }

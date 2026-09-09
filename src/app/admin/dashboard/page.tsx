@@ -1,11 +1,16 @@
 "use client";
 
 import React, { useState, useRef, useEffect, Suspense, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Cropper, { Area } from "react-easy-crop";
 import { createClient } from "@/lib/supabase/client";
+import AdminPromoManager from "@/components/admin/AdminPromoManager";
+import AdminEventManager from "@/components/admin/AdminEventManager";
+import AdminBannerManager from "@/components/admin/AdminBannerManager";
+import AdminMenuManager from "@/components/admin/AdminMenuManager";
+import AdminContactManager from "@/components/admin/AdminContactManager";
 
-type TabKey = "dashboard" | "promo" | "event" | "banner" | "table";
+type TabKey = "dashboard" | "promo" | "event" | "banner" | "menu" | "contact" | "table";
 
 const menuItems: {
   key: TabKey;
@@ -16,18 +21,67 @@ const menuItems: {
   { key: "promo", label: "โปรโมชั่น", icon: "◇" },
   { key: "event", label: "กิจกรรม / Event", icon: "◉" },
   { key: "banner", label: "จัดการ Banner", icon: "▣" },
+  { key: "menu", label: "จัดการเมนูอาหาร", icon: "🍽" },
+  { key: "contact", label: "จัดการติดต่อแอดมิน", icon: "💬" },
   { key: "table", label: "จัดการโต๊ะ / ผังร้าน", icon: "▤" },
 ];
 
 export default function AdminDashboardPage() {
+  const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
+
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
+  const [authChecking, setAuthChecking] = useState(true);
+
+  // ตรวจสอบว่ามีผู้ใช้ Login อยู่หรือไม่ก่อนแสดง Dashboard
+  useEffect(() => {
+    let mounted = true;
+
+    const checkAuth = async () => {
+      try {
+        const { data, error } = await supabase.auth.getUser();
+
+        if (error || !data.user) {
+          router.replace("/admin/login");
+          return;
+        }
+
+        if (mounted) {
+          setAuthChecking(false);
+        }
+      } catch (error) {
+        console.error("Auth check error:", error);
+        router.replace("/admin/login");
+      }
+    };
+
+    checkAuth();
+
+    return () => {
+      mounted = false;
+    };
+  }, [router, supabase]);
+
+  // แสดงหน้า Loading ระหว่างตรวจสอบ Session
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-10 h-10 rounded-full border-4 border-white/10 border-t-yellow-400 animate-spin" />
+          <p className="text-sm text-zinc-400">กำลังตรวจสอบสิทธิ์...</p>
+        </div>
+      </div>
+    );
+  }
 
   const pageTitle: Record<TabKey, string> = {
     dashboard: "ภาพรวมระบบ",
     promo: "จัดการโปรโมชั่น",
     event: "จัดการกิจกรรม / Event",
     banner: "จัดการ Banner",
+    menu: "จัดการเมนูอาหาร",
+    contact: "จัดการติดต่อแอดมิน",
     table: "จัดการโต๊ะและผังร้าน",
   };
 
@@ -107,9 +161,11 @@ export default function AdminDashboardPage() {
         </header>
 
         {activeTab === "dashboard" && <div className="text-zinc-400 text-sm">เนื้อหาภาพรวมระบบ...</div>}
-        {activeTab === "promo" && <div className="text-zinc-400 text-sm">เนื้อหาจัดการโปรโมชั่น...</div>}
-        {activeTab === "event" && <div className="text-zinc-400 text-sm">เนื้อหาจัดการกิจกรรม...</div>}
-        {activeTab === "banner" && <div className="text-zinc-400 text-sm">เนื้อหาจัดการ Banner...</div>}
+        {activeTab === "promo" && <AdminPromoManager />}
+        {activeTab === "event" && <AdminEventManager />}
+        {activeTab === "banner" && <AdminBannerManager />}
+        {activeTab === "menu" && <AdminMenuManager />}
+        {activeTab === "contact" && <AdminContactManager />}
         {activeTab === "table" && <AdminTableManager />}
       </main>
     </div>
