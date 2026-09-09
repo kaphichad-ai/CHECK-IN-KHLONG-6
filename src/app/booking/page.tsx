@@ -51,11 +51,11 @@ const DEFAULT_CONFIG: DailyConfig = {
 };
 
 const DEFAULT_PRICES: Record<string, ZonePrice> = {
-  VIP: { name: 'VIP ZONE', price: 1500, color: 'bg-teal-700' },
-  A: { name: 'A ZONE', price: 1000, color: 'bg-amber-800' },
-  B: { name: 'B ZONE', price: 800, color: 'bg-rose-800' },
-  S: { name: 'S ZONE (ชั้น 2)', price: 700, color: 'bg-amber-700' },
-  SPECIAL: { name: 'โซนพิเศษ (120-122)', price: 1200, color: 'bg-purple-800' },
+  VIP: { name: 'VIP ZONE', price: 0, color: 'bg-teal-700' },
+  A: { name: 'A ZONE', price: 0, color: 'bg-amber-800' },
+  B: { name: 'B ZONE', price: 0, color: 'bg-rose-800' },
+  S: { name: 'S ZONE (ชั้น 2)', price: 0, color: 'bg-amber-700' },
+  SPECIAL: { name: 'โซนพิเศษ (120-122)', price: 0, color: 'bg-purple-800' },
 };
 
 const getLocalDateString = (date: Date = new Date()) => {
