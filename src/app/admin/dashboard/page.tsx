@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, Suspense, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Cropper, { Area } from "react-easy-crop";
 import { createClient } from "@/lib/supabase/client";
 import AdminPromoManager from "@/components/admin/AdminPromoManager";
@@ -27,53 +27,24 @@ const menuItems: {
 ];
 
 export default function AdminDashboardPage() {
-  const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
-
   const [activeTab, setActiveTab] = useState<TabKey>("dashboard");
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
-  const [authChecking, setAuthChecking] = useState(true);
 
-  // ตรวจสอบว่ามีผู้ใช้ Login อยู่หรือไม่ก่อนแสดง Dashboard
-  useEffect(() => {
-    let mounted = true;
+  const handleLogout = async () => {
+    const supabase = createClient();
 
-    const checkAuth = async () => {
-      try {
-        const { data, error } = await supabase.auth.getUser();
+    const { error } = await supabase.auth.signOut();
 
-        if (error || !data.user) {
-          router.replace("/admin/login");
-          return;
-        }
+    if (error) {
+      console.error("Logout error:", error);
+      alert("ไม่สามารถออกจากระบบได้ กรุณาลองใหม่อีกครั้ง");
+      return;
+    }
 
-        if (mounted) {
-          setAuthChecking(false);
-        }
-      } catch (error) {
-        console.error("Auth check error:", error);
-        router.replace("/admin/login");
-      }
-    };
-
-    checkAuth();
-
-    return () => {
-      mounted = false;
-    };
-  }, [router, supabase]);
-
-  // แสดงหน้า Loading ระหว่างตรวจสอบ Session
-  if (authChecking) {
-    return (
-      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 rounded-full border-4 border-white/10 border-t-yellow-400 animate-spin" />
-          <p className="text-sm text-zinc-400">กำลังตรวจสอบสิทธิ์...</p>
-        </div>
-      </div>
-    );
-  }
+    // ล้าง session แล้วกลับหน้า Login
+    // replace ป้องกันการย้อนกลับไป Dashboard ด้วยปุ่ม Back
+    window.location.replace("/admin/login");
+  };
 
   const pageTitle: Record<TabKey, string> = {
     dashboard: "ภาพรวมระบบ",
@@ -131,10 +102,24 @@ export default function AdminDashboardPage() {
           </nav>
         </div>
 
-        <div className="pt-4 border-t border-white/[0.08] hidden md:block">
+        <div className="pt-4 border-t border-white/[0.08] space-y-2">
+
+          {/* Logout */}
           <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-all"
+            title="ออกจากระบบ"
+          >
+            <span className="text-base shrink-0">↪</span>
+            {isSidebarOpen && <span>ออกจากระบบ</span>}
+          </button>
+
+          {/* Toggle Sidebar - Desktop */}
+          <button
+            type="button"
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-white/[0.04] hover:text-white transition-all"
+            className="hidden md:flex w-full items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold text-zinc-400 hover:bg-white/[0.04] hover:text-white transition-all"
             title={isSidebarOpen ? "ย่อเมนู" : "ขยายเมนู"}
           >
             <span>{isSidebarOpen ? "◀" : "▶"}</span>
